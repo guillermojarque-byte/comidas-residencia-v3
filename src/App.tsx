@@ -367,6 +367,7 @@ export default function App() {
                 onDeleteGuest={handleDeleteGuest}
                 isSaving={isSaving}
                 syncSource={syncSource}
+                confirmedResidentsCount={confirmedResidentsCount}
               />
             )}
 

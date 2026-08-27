@@ -36,6 +36,7 @@ interface ResidentViewProps {
   onDeleteGuest: (id: string) => void;
   isSaving: boolean;
   syncSource: 'supabase' | 'local';
+  confirmedResidentsCount?: number;
 }
 
 export const ResidentView: React.FC<ResidentViewProps> = ({
@@ -52,6 +53,7 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
   onDeleteGuest,
   isSaving,
   syncSource,
+  confirmedResidentsCount,
 }) => {
   const currentResident = residents.find((r) => r.id === selectedResidentId) || residents[0];
   const currentDayData: MealSelection = weeklySchedule[selectedDay] || {
@@ -227,17 +229,19 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
           {/* Resumen rápido del residente */}
           <div className="flex items-center justify-around sm:justify-end gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 shrink-0">
             <div className="text-center px-3 py-1">
-              <span className="text-xs text-slate-500 font-medium block">En Residencia</span>
-              <span className="text-base font-extrabold text-emerald-700">{totalMealsAtHome} / 21</span>
+              <span className="text-xs text-slate-500 font-medium block">Residentes Hoy</span>
+              <span className="text-base font-extrabold text-emerald-700">
+                {confirmedResidentsCount !== undefined ? confirmedResidentsCount : residents.length} / {residents.length}
+              </span>
             </div>
             <div className="h-8 w-px bg-slate-200"></div>
             <div className="text-center px-3 py-1">
-              <span className="text-xs text-slate-500 font-medium block">Tuppers</span>
+              <span className="text-xs text-slate-500 font-medium block">Tuppers Sem.</span>
               <span className="text-base font-extrabold text-indigo-700">{totalTuppers}</span>
             </div>
             <div className="h-8 w-px bg-slate-200"></div>
             <div className="text-center px-3 py-1">
-              <span className="text-xs text-slate-500 font-medium block">2º Turno</span>
+              <span className="text-xs text-slate-500 font-medium block">2º Turno Sem.</span>
               <span className="text-base font-extrabold text-amber-700">{totalLateShifts}</span>
             </div>
           </div>
