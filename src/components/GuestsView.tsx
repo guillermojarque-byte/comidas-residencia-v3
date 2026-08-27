@@ -2,13 +2,19 @@ import React, { useState } from 'react';
 import { Users, Plus, Trash2, Calendar, Utensils, Clock, Package, Sparkles, Filter } from 'lucide-react';
 import { DAYS, GUEST_MENU_LABELS, GUEST_SERVICE_LABELS } from '../constants';
 import { DayOfWeek, GuestEntry, GuestMealType, Resident } from '../types';
-import { getDayShortFormatted, getDayFullFormatted, getDayDateOnly } from '../utils/dateUtils';
+import { getDayShortFormatted, getDayFullFormatted, getDayDateOnly, getWeekRangeLabel } from '../utils/dateUtils';
+import { WeekNavigator } from './WeekNavigator';
 
 interface GuestsViewProps {
   guests: GuestEntry[];
   residents: Resident[];
   selectedDay: DayOfWeek;
   onSelectDay: (day: DayOfWeek) => void;
+  weekOffset?: number;
+  onSetWeekOffset?: (offset: number) => void;
+  onPreviousWeek?: () => void;
+  onNextWeek?: () => void;
+  onCurrentWeek?: () => void;
   onOpenAddModal: (day?: DayOfWeek, mealType?: GuestMealType, hostName?: string) => void;
   onDeleteGuest: (id: string) => void;
 }
@@ -18,6 +24,11 @@ export const GuestsView: React.FC<GuestsViewProps> = ({
   residents,
   selectedDay,
   onSelectDay,
+  weekOffset = 0,
+  onSetWeekOffset,
+  onPreviousWeek,
+  onNextWeek,
+  onCurrentWeek,
   onOpenAddModal,
   onDeleteGuest,
 }) => {
@@ -29,9 +40,6 @@ export const GuestsView: React.FC<GuestsViewProps> = ({
   });
 
   const totalGuestsWeek = guests.reduce((sum, g) => sum + g.count, 0);
-  const totalGuestsSelectedDay = guests
-    .filter((g) => g.day === selectedDay)
-    .reduce((sum, g) => sum + g.count, 0);
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -62,15 +70,26 @@ export const GuestsView: React.FC<GuestsViewProps> = ({
         </button>
       </div>
 
+      {/* Week Navigator */}
+      {onSetWeekOffset && onPreviousWeek && onNextWeek && onCurrentWeek && (
+        <WeekNavigator
+          weekOffset={weekOffset}
+          onSetWeekOffset={onSetWeekOffset}
+          onPreviousWeek={onPreviousWeek}
+          onNextWeek={onNextWeek}
+          onCurrentWeek={onCurrentWeek}
+        />
+      )}
+
       {/* Selector de Día */}
       <div className="space-y-2">
         <div className="flex items-center justify-between px-1">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
             <Calendar className="w-3.5 h-3.5 text-slate-400" />
-            Filtrar por día de la semana:
+            Filtrar por día de la semana ({getWeekRangeLabel(weekOffset)}):
           </span>
           <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200">
-            Total semana: {totalGuestsWeek} {totalGuestsWeek === 1 ? 'comensal' : 'comensales'}
+            Total registrados: {totalGuestsWeek} {totalGuestsWeek === 1 ? 'comensal' : 'comensales'}
           </span>
         </div>
 
@@ -90,7 +109,7 @@ export const GuestsView: React.FC<GuestsViewProps> = ({
           {DAYS.map((d) => {
             const isSelected = filterDay === d.id;
             const countForDay = guests.filter((g) => g.day === d.id).reduce((sum, g) => sum + g.count, 0);
-            const dateOnly = getDayDateOnly(d.id);
+            const dateOnly = getDayDateOnly(d.id, weekOffset);
 
             return (
               <button
@@ -148,81 +167,68 @@ export const GuestsView: React.FC<GuestsViewProps> = ({
 
         {filteredGuests.length === 0 ? (
           <div className="py-12 text-center text-slate-500 space-y-3">
-            <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-400 flex items-center justify-center mx-auto">
               <Users className="w-6 h-6" />
             </div>
-            <p className="text-sm font-semibold text-slate-700">No hay invitados registrados para este período</p>
-            <p className="text-xs text-slate-400 max-w-sm mx-auto">
-              Si viene algún familiar, amigo o comensal externo, puedes registrarlo aquí para que cocina prepare su ración.
+            <p className="text-sm font-semibold">No hay invitados registrados para este filtro</p>
+            <p className="text-xs text-slate-400">
+              Pulsa en "+ Registrar Invitado" para avisar a la cocina de una ración adicional.
             </p>
-            <button
-              onClick={() => onOpenAddModal(filterDay === 'all' ? selectedDay : filterDay)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Registrar Invitado Ahora</span>
-            </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredGuests.map((g) => {
+              const menu = GUEST_MENU_LABELS[g.menuType] || GUEST_MENU_LABELS.estandar;
+              const service = GUEST_SERVICE_LABELS[g.serviceMode] || 'Comedor';
               const dayMeta = DAYS.find((d) => d.id === g.day);
-              const menuInfo = GUEST_MENU_LABELS[g.menuType] || GUEST_MENU_LABELS.estandar;
 
               return (
                 <div
                   key={g.id}
-                  className="bg-slate-50 hover:bg-slate-100/80 rounded-xl p-4 border border-slate-200 transition flex flex-col justify-between space-y-3"
+                  className="bg-slate-50 rounded-2xl p-4 border border-slate-200 flex flex-col justify-between space-y-3 hover:shadow-sm transition"
                 >
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="px-2 py-0.5 rounded-lg bg-slate-900 text-white text-xs font-black capitalize">
-                        {getDayFullFormatted(g.day)}
+                      <span className="text-xs font-black uppercase tracking-wider text-indigo-900 bg-indigo-100 px-2 py-0.5 rounded-md">
+                        {dayMeta?.label} ({getDayDateOnly(g.day, weekOffset)}) • {g.mealType}
                       </span>
-                      <span className="text-xs font-black text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
-                        {g.count} {g.count === 1 ? 'comensal' : 'comensales'}
+                      <span className="text-xs font-extrabold text-slate-900 bg-white border border-slate-200 px-2 py-0.5 rounded-lg shadow-2xs">
+                        {g.count} {g.count === 1 ? 'persona' : 'personas'}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-extrabold text-slate-900 capitalize">
-                        {g.mealType === 'desayuno' ? '☕ Desayuno' : g.mealType === 'comida' ? '🍲 Comida' : '🌙 Cena'}
-                      </span>
-                      {g.mealType !== 'desayuno' && (
-                        <span className="text-xs text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200 font-medium">
-                          {GUEST_SERVICE_LABELS[g.serviceMode] || g.serviceMode}
-                        </span>
-                      )}
+                    <div>
+                      <h4 className="font-extrabold text-slate-900 text-sm">
+                        {g.guestName || 'Invitado(s)'}
+                      </h4>
+                      <p className="text-xs text-slate-500">
+                        Anfitrión: <strong className="text-slate-800">{g.hostName}</strong>
+                      </p>
                     </div>
 
-                    <div className="text-xs text-slate-600 space-y-1">
-                      <div>
-                        <span className="font-semibold text-slate-700">Anfitrión:</span>{' '}
-                        <span className="font-bold text-slate-900 bg-slate-200/70 px-1.5 py-0.5 rounded">
-                          {g.hostName}
-                        </span>
+                    <div className="flex flex-wrap gap-1.5 text-[11px] pt-1">
+                      <span className="bg-white border border-slate-200 text-slate-700 px-2 py-0.5 rounded-md font-medium">
+                        {service}
+                      </span>
+                      <span className="bg-white border border-slate-200 text-slate-700 px-2 py-0.5 rounded-md font-medium">
+                        Menú: <strong>{menu.label}</strong>
+                      </span>
+                    </div>
+
+                    {g.dietNotes && (
+                      <div className="text-xs bg-rose-50 text-rose-700 p-2 rounded-xl border border-rose-100 font-medium">
+                        ⚠️ <strong className="font-bold">Alergias/Dieta:</strong> {g.dietNotes}
                       </div>
-
-                      <div>
-                        <span className="font-semibold text-slate-700">Menú:</span>{' '}
-                        <span className={`px-2 py-0.5 rounded-full font-bold text-[11px] border ${menuInfo.color}`}>
-                          {menuInfo.label}
-                        </span>
-                      </div>
-
-                      {g.notes && (
-                        <div className="pt-1 text-slate-500 italic">
-                          "{g.notes}"
-                        </div>
-                      )}
-                    </div>
+                    )}
                   </div>
 
-                  <div className="pt-2 border-t border-slate-200/80 flex items-center justify-end">
+                  <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between">
+                    <span className="text-[10px] text-slate-400">
+                      ID: {g.id.substring(0, 10)}
+                    </span>
                     <button
                       onClick={() => onDeleteGuest(g.id)}
-                      className="text-rose-600 hover:text-rose-800 p-1.5 rounded-lg hover:bg-rose-50 text-xs font-bold flex items-center gap-1 transition"
-                      title="Eliminar invitado"
+                      className="text-xs text-rose-600 hover:text-rose-800 font-semibold p-1 rounded hover:bg-rose-50 flex items-center gap-1 transition"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>Eliminar</span>

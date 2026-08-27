@@ -15,19 +15,38 @@ import {
   Trash2, 
   Edit3, 
   Printer, 
-  Share2,
   Calendar,
-  MessageSquare,
   Sparkles,
-  User
+  User,
+  ChevronRight,
+  Filter,
+  CheckCheck
 } from 'lucide-react';
-import confetti from 'canvas-confetti';
-import { AdminNote, AdminNoteCategory, AdminNoteStatus, Resident } from '../types';
+import { DAYS } from '../constants';
+import { AdminNote, AdminNoteCategory, AdminNoteStatus, DayOfWeek, Resident } from '../types';
+import { 
+  getDayShortFormatted, 
+  getDayFullFormatted, 
+  getDayDateOnly, 
+  getDayISOString, 
+  getWeekRangeLabel, 
+  formatDateDDMMYY, 
+  parseISODate,
+  formatDateToISO
+} from '../utils/dateUtils';
+import { WeekNavigator } from './WeekNavigator';
 
 interface AdminAgendaViewProps {
   notes: AdminNote[];
   residents: Resident[];
-  onOpenAddModal: (author?: string) => void;
+  selectedDay: DayOfWeek;
+  onSelectDay: (day: DayOfWeek) => void;
+  weekOffset: number;
+  onSetWeekOffset: (offset: number) => void;
+  onPreviousWeek: () => void;
+  onNextWeek: () => void;
+  onCurrentWeek: () => void;
+  onOpenAddModal: (author?: string, targetDate?: string) => void;
   onEditNote: (note: AdminNote) => void;
   onDeleteNote: (noteId: string) => void;
   onToggleStatus: (note: AdminNote, nextStatus: AdminNoteStatus) => void;
@@ -70,35 +89,71 @@ const CATEGORY_CONFIG: Record<AdminNoteCategory, { label: string; icon: React.FC
 export const AdminAgendaView: React.FC<AdminAgendaViewProps> = ({
   notes,
   residents,
+  selectedDay,
+  onSelectDay,
+  weekOffset,
+  onSetWeekOffset,
+  onPreviousWeek,
+  onNextWeek,
+  onCurrentWeek,
   onOpenAddModal,
   onEditNote,
   onDeleteNote,
   onToggleStatus,
   syncSource,
 }) => {
+  const [dateScope, setDateScope] = useState<'day' | 'week' | 'all'>('day');
   const [filterStatus, setFilterStatus] = useState<AdminNoteStatus | 'all'>('pendiente');
   const [filterCategory, setFilterCategory] = useState<AdminNoteCategory | 'all'>('all');
   const [filterAuthor, setFilterAuthor] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [copiedSummary, setCopiedSummary] = useState(false);
-  const [isCallingMode, setIsCallingMode] = useState(false);
 
-  // Stats calculation
-  const pendingNotes = useMemo(() => notes.filter((n) => n.status === 'pendiente'), [notes]);
-  const urgentPending = useMemo(() => pendingNotes.filter((n) => n.priority === 'urgente'), [pendingNotes]);
-  const transmittedNotes = useMemo(() => notes.filter((n) => n.status === 'transmitido'), [notes]);
-  const resolvedNotes = useMemo(() => notes.filter((n) => n.status === 'resuelto'), [notes]);
+  const currentDayISO = getDayISOString(selectedDay, weekOffset);
+  const currentWeekDaysISO = useMemo(() => {
+    return DAYS.map((d) => getDayISOString(d.id, weekOffset));
+  }, [weekOffset]);
 
-  // Filtered notes
+  // Notes count for each day of the selected week
+  const dayNotesCount = useMemo(() => {
+    const map: Record<DayOfWeek, number> = {
+      lunes: 0,
+      martes: 0,
+      miercoles: 0,
+      jueves: 0,
+      viernes: 0,
+      sabado: 0,
+      domingo: 0,
+    };
+    DAYS.forEach((d) => {
+      const iso = getDayISOString(d.id, weekOffset);
+      map[d.id] = notes.filter((n) => n.targetDate === iso && n.status === 'pendiente').length;
+    });
+    return map;
+  }, [notes, weekOffset]);
+
+  // Filtered notes based on date scope, status, category, author, search
   const filteredNotes = useMemo(() => {
     return notes.filter((note) => {
-      // Status filter
+      // 1. Date scope filter (Strict paper-agenda date binding)
+      if (dateScope === 'day') {
+        // Only notes matching the selected day's ISO date
+        if (note.targetDate !== currentDayISO) return false;
+      } else if (dateScope === 'week') {
+        // Notes matching any day of the active week
+        if (!currentWeekDaysISO.includes(note.targetDate)) return false;
+      }
+
+      // 2. Status filter
       if (filterStatus !== 'all' && note.status !== filterStatus) return false;
-      // Category filter
+
+      // 3. Category filter
       if (filterCategory !== 'all' && note.category !== filterCategory) return false;
-      // Author filter
+
+      // 4. Author filter
       if (filterAuthor !== 'all' && note.author !== filterAuthor) return false;
-      // Search term
+
+      // 5. Search query
       if (searchTerm.trim()) {
         const query = searchTerm.toLowerCase();
         const matchesTitle = note.title.toLowerCase().includes(query);
@@ -107,35 +162,40 @@ export const AdminAgendaView: React.FC<AdminAgendaViewProps> = ({
         const matchesDate = (note.targetDate || '').toLowerCase().includes(query);
         if (!matchesTitle && !matchesDesc && !matchesAuthor && !matchesDate) return false;
       }
+
       return true;
     });
-  }, [notes, filterStatus, filterCategory, filterAuthor, searchTerm]);
+  }, [notes, dateScope, currentDayISO, currentWeekDaysISO, filterStatus, filterCategory, filterAuthor, searchTerm]);
 
-  // Copy structured summary for the phone call or messaging
+  // Stats for the active scope
+  const activeScopePending = useMemo(() => {
+    return filteredNotes.filter((n) => n.status === 'pendiente');
+  }, [filteredNotes]);
+
+  const activeScopeUrgent = useMemo(() => {
+    return activeScopePending.filter((n) => n.priority === 'urgente');
+  }, [activeScopePending]);
+
+  // Copy structured summary for the telephone call with Director
   const handleCopyCallSummary = () => {
-    const todayStr = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
-    let text = `📞 *AGENDA ADMINISTRACIÓN - RESIDENCIA* (${todayStr})\n`;
-    text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    const dateLabel = getDayFullFormatted(selectedDay, weekOffset);
+    let text = `📞 *AGENDA ADMINISTRACIÓN - RESIDENCIA* (${dateLabel})\n`;
+    text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-    if (pendingNotes.length === 0) {
-      text += `✅ No hay peticiones pendientes para la llamada de hoy.\n`;
+    const notesToExport = activeScopePending;
+
+    if (notesToExport.length === 0) {
+      text += `✅ No hay peticiones pendientes para la llamada de este día.\n`;
     } else {
-      text += `📋 *PETICIONES PENDIENTES (${pendingNotes.length}):*\n\n`;
-      pendingNotes.forEach((n, idx) => {
+      text += `📋 *PETICIONES PENDIENTES (${notesToExport.length}):*\n\n`;
+      notesToExport.forEach((n, idx) => {
         const urgentFlag = n.priority === 'urgente' ? ' ⚠️ [URGENTE]' : '';
-        const dateFlag = n.targetDate ? ` (Para: ${n.targetDate})` : '';
-        text += `${idx + 1}. *[${n.author}]* ${n.title}${urgentFlag}${dateFlag}\n`;
+        const targetFormatted = n.targetDate ? formatDateDDMMYY(parseISODate(n.targetDate)) : '';
+        text += `${idx + 1}. *[${n.author}]* ${n.title}${urgentFlag} (Fecha: ${targetFormatted})\n`;
         if (n.description) {
           text += `   ↳ _${n.description}_\n`;
         }
         text += `\n`;
-      });
-    }
-
-    if (transmittedNotes.length > 0) {
-      text += `\n🔵 *TRANSMITIDAS EN SEGUIMIENTO (${transmittedNotes.length}):*\n`;
-      transmittedNotes.slice(0, 5).forEach((n, idx) => {
-        text += `• [${n.author}] ${n.title}\n`;
       });
     }
 
@@ -148,542 +208,410 @@ export const AdminAgendaView: React.FC<AdminAgendaViewProps> = ({
     window.print();
   };
 
-  const handleMarkAsCalled = (note: AdminNote) => {
-    onToggleStatus(note, 'transmitido');
-    confetti({ particleCount: 25, spread: 45, origin: { y: 0.8 } });
-  };
-
-  const handleMarkAsResolved = (note: AdminNote) => {
-    onToggleStatus(note, 'resuelto');
-    confetti({ particleCount: 35, spread: 60, origin: { y: 0.7 } });
-  };
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fadeIn">
       
-      {/* Top Banner & Main Actions */}
-      <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-slate-800 relative overflow-hidden">
-        
-        {/* Glow effect */}
-        <div className="absolute top-0 right-0 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
-
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-2 max-w-2xl">
-            <div className="flex items-center gap-2">
-              <span className="bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs uppercase tracking-wider font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
-                <PhoneCall className="w-3.5 h-3.5" />
-                <span>Llamada Matutina del Director</span>
-              </span>
-              <span className="text-xs text-slate-400">Muro Compartido</span>
-            </div>
-            <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-3">
-              <span>Agenda de Administración</span>
-            </h2>
-            <p className="text-sm text-slate-300 leading-relaxed">
-              Espacio para que todos anotemos peticiones de <strong>organización de la casa</strong>, <strong>cambios de horarios</strong>, <strong>cocina</strong> o <strong>mantenimiento</strong> para que el director las pida por teléfono a la administración cada mañana.
-            </p>
+      {/* Header & Main Controls */}
+      <div className="bg-white rounded-2xl p-5 md:p-6 shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="px-2.5 py-1 bg-blue-100 text-blue-900 font-bold rounded-lg text-xs flex items-center gap-1.5">
+              <PhoneCall className="w-3.5 h-3.5" />
+              Agenda de Peticiones y Avisos
+            </span>
+            <span className="text-xs text-slate-500 font-medium">
+              Vinculada estrictamente a fechas concretas
+            </span>
           </div>
-
-          {/* Action buttons */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              onClick={() => onOpenAddModal()}
-              className="px-5 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl text-sm shadow-lg hover:shadow-blue-500/25 transition flex items-center gap-2 shrink-0"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Anotar Petición</span>
-            </button>
-
-            <button
-              onClick={() => setIsCallingMode(!isCallingMode)}
-              className={`px-4 py-3 font-bold rounded-2xl text-xs sm:text-sm border transition flex items-center gap-2 shrink-0 ${
-                isCallingMode 
-                  ? 'bg-amber-500 text-slate-950 border-amber-400 font-black' 
-                  : 'bg-slate-800/80 hover:bg-slate-800 text-slate-200 border-slate-700'
-              }`}
-            >
-              <PhoneCall className="w-4 h-4 text-amber-300" />
-              <span>{isCallingMode ? 'Salir de Modo Llamada' : 'Modo Llamada Matutina'}</span>
-            </button>
-
-            <button
-              onClick={handleCopyCallSummary}
-              className="p-3 bg-slate-800/80 hover:bg-slate-800 text-slate-200 hover:text-white border border-slate-700 rounded-2xl text-xs font-semibold transition flex items-center gap-1.5"
-              title="Copiar resumen para WhatsApp / Notas"
-            >
-              {copiedSummary ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-              <span className="hidden sm:inline">{copiedSummary ? '¡Copiado!' : 'Copiar'}</span>
-            </button>
-
-            <button
-              onClick={handlePrint}
-              className="p-3 bg-slate-800/80 hover:bg-slate-800 text-slate-200 hover:text-white border border-slate-700 rounded-2xl text-xs font-semibold transition flex items-center gap-1.5 no-print"
-              title="Imprimir agenda"
-            >
-              <Printer className="w-4 h-4" />
-            </button>
-          </div>
+          <h2 className="text-xl font-extrabold text-slate-900 mt-1">
+            Agenda Diaria para la Llamada con Administración
+          </h2>
         </div>
 
-        {/* Quick Stat Counters */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-6 border-t border-slate-800/80 text-xs">
-          <div className="bg-slate-800/60 rounded-2xl p-3.5 border border-slate-700/60 flex items-center justify-between">
-            <div>
-              <span className="text-slate-400 block font-medium">Pendientes para llamada</span>
-              <span className="text-2xl font-black text-amber-400">{pendingNotes.length}</span>
-            </div>
-            <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center font-bold">
-              <Clock className="w-5 h-5" />
-            </div>
-          </div>
+        {/* Action buttons */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => onOpenAddModal(undefined, currentDayISO)}
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Anotar para {getDayDateOnly(selectedDay, weekOffset)}</span>
+          </button>
 
-          <div className="bg-slate-800/60 rounded-2xl p-3.5 border border-slate-700/60 flex items-center justify-between">
-            <div>
-              <span className="text-slate-400 block font-medium">Urgentes</span>
-              <span className="text-2xl font-black text-rose-400">{urgentPending.length}</span>
-            </div>
-            <div className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center font-bold">
-              <AlertTriangle className="w-5 h-5" />
-            </div>
-          </div>
+          <button
+            onClick={handleCopyCallSummary}
+            className={`px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition ${
+              copiedSummary
+                ? 'bg-emerald-600 text-white'
+                : 'bg-slate-900 hover:bg-slate-800 text-white'
+            }`}
+            title="Copiar texto para la llamada telefónica o WhatsApp"
+          >
+            {copiedSummary ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            <span>{copiedSummary ? '¡Copiado!' : 'Copiar Agenda'}</span>
+          </button>
 
-          <div className="bg-slate-800/60 rounded-2xl p-3.5 border border-slate-700/60 flex items-center justify-between">
-            <div>
-              <span className="text-slate-400 block font-medium">Transmitidas / En curso</span>
-              <span className="text-2xl font-black text-blue-400">{transmittedNotes.length}</span>
-            </div>
-            <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center font-bold">
-              <PhoneCall className="w-5 h-5" />
-            </div>
-          </div>
-
-          <div className="bg-slate-800/60 rounded-2xl p-3.5 border border-slate-700/60 flex items-center justify-between">
-            <div>
-              <span className="text-slate-400 block font-medium">Resueltas / Tramitadas</span>
-              <span className="text-2xl font-black text-emerald-400">{resolvedNotes.length}</span>
-            </div>
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold">
-              <CheckCircle2 className="w-5 h-5" />
-            </div>
-          </div>
+          <button
+            onClick={handlePrint}
+            className="p-2.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition border border-slate-200"
+            title="Imprimir agenda"
+          >
+            <Printer className="w-4 h-4" />
+          </button>
         </div>
-
       </div>
 
-      {/* CALLING MODE SPECIAL BANNER (Focus View for Morning Call) */}
-      {isCallingMode && (
-        <div className="bg-amber-500/10 border-2 border-amber-500/50 rounded-3xl p-5 md:p-6 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-300/40 pb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center font-black animate-pulse">
-                <PhoneCall className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-black text-slate-900">
-                  Modo Checklist para la Llamada Matutina
-                </h3>
-                <p className="text-xs text-slate-600">
-                  Haz clic en <span className="font-bold text-blue-700">"✓ Pedido por Teléfono"</span> en cada punto a medida que lo transmites en la llamada.
-                </p>
-              </div>
-            </div>
+      {/* Week Navigator */}
+      <WeekNavigator
+        weekOffset={weekOffset}
+        onSetWeekOffset={onSetWeekOffset}
+        onPreviousWeek={onPreviousWeek}
+        onNextWeek={onNextWeek}
+        onCurrentWeek={onCurrentWeek}
+      />
+
+      {/* Date Scope Selector & Day Tabs */}
+      <div className="space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-2 rounded-2xl border border-slate-200">
+          
+          {/* Scope Mode tabs */}
+          <div className="flex bg-white p-1 rounded-xl border border-slate-200 text-xs font-bold shadow-2xs">
             <button
-              onClick={() => setIsCallingMode(false)}
-              className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold shrink-0 self-start sm:self-auto"
-            >
-              Cerrar Modo Checklist
-            </button>
-          </div>
-
-          {pendingNotes.length === 0 ? (
-            <div className="text-center py-6 bg-white/70 rounded-2xl border border-amber-200">
-              <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto mb-2" />
-              <p className="text-sm font-bold text-slate-800">¡Todo transmitido!</p>
-              <p className="text-xs text-slate-500">No quedan peticiones pendientes para la llamada de hoy.</p>
-            </div>
-          ) : (
-            <div className="space-y-2.5">
-              {pendingNotes.map((note, index) => {
-                const catCfg = CATEGORY_CONFIG[note.category];
-                return (
-                  <div
-                    key={note.id}
-                    className="bg-white rounded-2xl p-4 border border-amber-300 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                  >
-                    <div className="flex items-start gap-3">
-                      <span className="w-7 h-7 rounded-xl bg-slate-900 text-white font-black text-xs flex items-center justify-center shrink-0 mt-0.5">
-                        {index + 1}
-                      </span>
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-slate-900 text-white">
-                            {note.author}
-                          </span>
-                          <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border ${catCfg.badgeClass}`}>
-                            {catCfg.label}
-                          </span>
-                          {note.priority === 'urgente' && (
-                            <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-rose-600 text-white flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3" />
-                              <span>URGENTE</span>
-                            </span>
-                          )}
-                          {note.targetDate && (
-                            <span className="px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-slate-100 text-slate-700">
-                              📅 {note.targetDate}
-                            </span>
-                          )}
-                        </div>
-                        <h4 className="text-sm font-black text-slate-900">{note.title}</h4>
-                        {note.description && (
-                          <p className="text-xs text-slate-600">{note.description}</p>
-                        )}
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => handleMarkAsCalled(note)}
-                      className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-1.5 shrink-0"
-                    >
-                      <PhoneCall className="w-3.5 h-3.5" />
-                      <span>✓ Pedido por Teléfono</span>
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Filter Toolbar */}
-      <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-3">
-        
-        {/* Row 1: Status tabs */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
-          <div className="flex items-center gap-1 overflow-x-auto scrollbar-none p-1 bg-slate-100/80 rounded-2xl w-full sm:w-auto">
-            <button
-              onClick={() => setFilterStatus('pendiente')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap ${
-                filterStatus === 'pendiente'
-                  ? 'bg-amber-500 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Clock className="w-3.5 h-3.5" />
-              <span>Pendientes ({pendingNotes.length})</span>
-            </button>
-
-            <button
-              onClick={() => setFilterStatus('all')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap ${
-                filterStatus === 'all'
-                  ? 'bg-slate-900 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <span>Todas ({notes.length})</span>
-            </button>
-
-            <button
-              onClick={() => setFilterStatus('transmitido')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap ${
-                filterStatus === 'transmitido'
+              onClick={() => setDateScope('day')}
+              className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
+                dateScope === 'day'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <PhoneCall className="w-3.5 h-3.5" />
-              <span>Transmitidas ({transmittedNotes.length})</span>
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Día Concreto ({getDayShortFormatted(selectedDay, weekOffset)})</span>
             </button>
 
             <button
-              onClick={() => setFilterStatus('resuelto')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap ${
-                filterStatus === 'resuelto'
-                  ? 'bg-emerald-600 text-white shadow-xs'
+              onClick={() => setDateScope('week')}
+              className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
+                dateScope === 'week'
+                  ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Resueltas ({resolvedNotes.length})</span>
+              <span>Semana Activa</span>
+            </button>
+
+            <button
+              onClick={() => setDateScope('all')}
+              className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
+                dateScope === 'all'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <span>Todas las Fechas</span>
             </button>
           </div>
 
-          {/* Quick search */}
-          <div className="relative flex-1 sm:max-w-xs w-full">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <div className="text-xs font-semibold text-slate-500 flex items-center gap-2 px-2">
+            <span>Mostrando:</span>
+            <span className="font-extrabold text-slate-800">
+              {dateScope === 'day'
+                ? getDayFullFormatted(selectedDay, weekOffset)
+                : dateScope === 'week'
+                ? getWeekRangeLabel(weekOffset)
+                : 'Histórico global'}
+            </span>
+          </div>
+
+        </div>
+
+        {/* Day of week buttons (Available in 'day' and 'week' modes) */}
+        {dateScope !== 'all' && (
+          <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+            {DAYS.map((d) => {
+              const isSelected = d.id === selectedDay && dateScope === 'day';
+              const dateOnly = getDayDateOnly(d.id, weekOffset);
+              const pendingCount = dayNotesCount[d.id];
+
+              return (
+                <button
+                  key={d.id}
+                  onClick={() => {
+                    onSelectDay(d.id);
+                    setDateScope('day');
+                  }}
+                  className={`p-2.5 rounded-xl text-center transition-all border flex flex-col items-center justify-between gap-1.5 ${
+                    isSelected
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-300'
+                      : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <span className="text-[11px] font-bold">{d.short}</span>
+                    <span className={`text-[10px] font-semibold ${isSelected ? 'text-blue-100' : 'text-slate-500'}`}>
+                      {dateOnly}
+                    </span>
+                  </div>
+
+                  <span className={`text-xs font-extrabold ${isSelected ? 'text-white' : 'text-slate-900'}`}>
+                    {d.label}
+                  </span>
+
+                  <div className="w-full pt-1 border-t border-slate-100/30 text-[10px] font-bold flex items-center justify-center">
+                    {pendingCount > 0 ? (
+                      <span className={`px-1.5 py-0.2 rounded-full font-black text-[9px] ${
+                        isSelected ? 'bg-white text-blue-900' : 'bg-amber-100 text-amber-900 border border-amber-300'
+                      }`}>
+                        {pendingCount} {pendingCount === 1 ? 'nota' : 'notas'}
+                      </span>
+                    ) : (
+                      <span className={`text-[10px] ${isSelected ? 'text-blue-200' : 'text-slate-300'}`}>
+                        -
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Filter / Search Bar */}
+      <div className="bg-white rounded-2xl p-4 shadow-xs border border-slate-200 space-y-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          
+          {/* Search box */}
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar en la agenda..."
-              className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              placeholder="Buscar por texto, asunto o residente..."
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2 text-xs font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
             />
           </div>
-        </div>
 
-        {/* Row 2: Secondary Category & Author Filters */}
-        <div className="flex flex-wrap items-center gap-3 text-xs">
-          
-          {/* Category filter */}
-          <div className="flex items-center gap-1.5">
-            <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Categoría:</span>
-            <select
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value as AdminNoteCategory | 'all')}
-              className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">Todas las Categorías</option>
-              <option value="organizacion">Organización Casa</option>
-              <option value="horarios">Cambios de Horario</option>
-              <option value="cocina">Cocina y Comedor</option>
-              <option value="mantenimiento">Mantenimiento</option>
-              <option value="general">General / Varios</option>
-            </select>
-          </div>
-
-          {/* Author filter */}
-          <div className="flex items-center gap-1.5">
-            <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Autor:</span>
-            <select
-              value={filterAuthor}
-              onChange={(e) => setFilterAuthor(e.target.value)}
-              className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">Todos los autores</option>
-              <optgroup label="Residentes">
-                {residents.map((r) => (
-                  <option key={r.id} value={r.name}>
-                    {r.name}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Otros">
-                <option value="Director">Director</option>
-                <option value="Cocina">Cocina</option>
-                <option value="Personal">Personal</option>
-              </optgroup>
-            </select>
-          </div>
-
-          {(filterCategory !== 'all' || filterAuthor !== 'all' || searchTerm) && (
+          {/* Status filters */}
+          <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-bold shrink-0">
             <button
-              onClick={() => {
-                setFilterCategory('all');
-                setFilterAuthor('all');
-                setSearchTerm('');
-              }}
-              className="text-xs text-blue-600 hover:text-blue-800 font-bold underline ml-auto"
+              onClick={() => setFilterStatus('pendiente')}
+              className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1 ${
+                filterStatus === 'pendiente' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
             >
-              Limpiar filtros
+              <Clock className="w-3.5 h-3.5" />
+              <span>Pendientes ({activeScopePending.length})</span>
             </button>
-          )}
+
+            <button
+              onClick={() => setFilterStatus('transmitido')}
+              className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1 ${
+                filterStatus === 'transmitido' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <PhoneCall className="w-3.5 h-3.5" />
+              <span>Transmitidos</span>
+            </button>
+
+            <button
+              onClick={() => setFilterStatus('resuelto')}
+              className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1 ${
+                filterStatus === 'resuelto' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Resueltos</span>
+            </button>
+
+            <button
+              onClick={() => setFilterStatus('all')}
+              className={`px-2.5 py-1.5 rounded-lg transition ${
+                filterStatus === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Todos
+            </button>
+          </div>
 
         </div>
-
       </div>
 
-      {/* Grid of Notes */}
-      {filteredNotes.length === 0 ? (
-        <div className="bg-white rounded-3xl p-12 text-center border border-slate-200 space-y-3">
-          <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
-            <FileText className="w-6 h-6" />
+      {/* List of Notes */}
+      <div className="space-y-4">
+        {filteredNotes.length === 0 ? (
+          <div className="bg-white rounded-2xl p-10 text-center border border-slate-200 space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+              <Calendar className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-extrabold text-slate-800">
+              No hay anotaciones para {dateScope === 'day' ? getDayFullFormatted(selectedDay, weekOffset) : 'los filtros seleccionados'}
+            </h3>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Como en una agenda en blanco, las notas pertenecen estrictamente al día en que se registran para evitar confusiones.
+            </p>
+            <button
+              onClick={() => onOpenAddModal(undefined, currentDayISO)}
+              className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Añadir primera anotación para este día</span>
+            </button>
           </div>
-          <h3 className="text-base font-black text-slate-800">No hay peticiones con este filtro</h3>
-          <p className="text-xs text-slate-500 max-w-sm mx-auto">
-            Puedes añadir una nueva petición o aviso para la llamada de administración pulsando el botón superior.
-          </p>
-          <button
-            onClick={() => onOpenAddModal()}
-            className="mt-2 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Anotar Nueva Petición</span>
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredNotes.map((note) => {
-            const catCfg = CATEGORY_CONFIG[note.category];
-            const isPending = note.status === 'pendiente';
-            const isTransmitted = note.status === 'transmitido';
-            const isResolved = note.status === 'resuelto';
+        ) : (
+          <div className="grid grid-cols-1 gap-3.5">
+            {filteredNotes.map((note) => {
+              const cat = CATEGORY_CONFIG[note.category] || CATEGORY_CONFIG.general;
+              const CatIcon = cat.icon;
+              const isUrgent = note.priority === 'urgente';
+              const targetFormatted = note.targetDate ? formatDateDDMMYY(parseISODate(note.targetDate)) : '';
 
-            return (
-              <div
-                key={note.id}
-                className={`bg-white rounded-3xl p-5 border transition-all duration-200 flex flex-col justify-between shadow-xs hover:shadow-md ${
-                  note.priority === 'urgente' && isPending
-                    ? 'border-rose-300 ring-2 ring-rose-500/20'
-                    : isResolved
-                    ? 'border-slate-200 opacity-80 bg-slate-50/50'
-                    : isTransmitted
-                    ? 'border-blue-200 bg-blue-50/20'
-                    : 'border-slate-200'
-                }`}
-              >
-                {/* Header of card */}
-                <div className="space-y-3">
-                  
-                  {/* Tags row */}
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {/* Author badge */}
-                      <span className="px-2 py-0.5 rounded-lg text-xs font-black bg-slate-900 text-white flex items-center gap-1">
-                        <User className="w-3 h-3" />
-                        <span>{note.author}</span>
-                      </span>
-
-                      {/* Category badge */}
-                      <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border ${catCfg.badgeClass}`}>
-                        {catCfg.label}
-                      </span>
-                    </div>
-
-                    {/* Priority badge */}
-                    {note.priority === 'urgente' ? (
-                      <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-rose-600 text-white flex items-center gap-1 shrink-0 animate-pulse">
-                        <AlertTriangle className="w-3 h-3" />
-                        <span>URGENTE</span>
-                      </span>
-                    ) : (
-                      note.targetDate && (
-                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-slate-100 text-slate-600 truncate max-w-[120px]">
-                          📅 {note.targetDate}
-                        </span>
-                      )
-                    )}
-                  </div>
-
-                  {/* Title & Description */}
-                  <div>
-                    <h4 className={`text-base font-black text-slate-900 leading-snug ${isResolved ? 'line-through text-slate-500' : ''}`}>
-                      {note.title}
-                    </h4>
-                    {note.description && (
-                      <p className="text-xs text-slate-600 mt-1.5 leading-relaxed whitespace-pre-line">
-                        {note.description}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Response / Follow up notes */}
-                  {note.responseNotes && (
-                    <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 space-y-0.5">
-                      <span className="font-bold block flex items-center gap-1 text-[10px] uppercase tracking-wider text-emerald-700">
-                        <CheckCircle2 className="w-3 h-3" />
-                        <span>Respuesta / Tramitación</span>
-                      </span>
-                      <p className="font-medium text-emerald-950">{note.responseNotes}</p>
-                    </div>
-                  )}
-
-                </div>
-
-                {/* Footer of card */}
-                <div className="pt-4 mt-4 border-t border-slate-100 space-y-3">
-                  
-                  {/* Status Indicator & Timestamp */}
-                  <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <div className="flex items-center gap-1.5">
-                      {isPending && (
-                        <span className="inline-flex items-center gap-1 text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
-                          <Clock className="w-3 h-3" />
-                          <span>Pendiente llamada</span>
-                        </span>
-                      )}
-                      {isTransmitted && (
-                        <span className="inline-flex items-center gap-1 text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
-                          <PhoneCall className="w-3 h-3" />
-                          <span>Pedido por teléfono</span>
-                        </span>
-                      )}
-                      {isResolved && (
-                        <span className="inline-flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                          <CheckCircle2 className="w-3 h-3" />
-                          <span>Resuelto</span>
-                        </span>
-                      )}
-                    </div>
-                    <span>
-                      {new Date(note.createdAt).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })}
-                    </span>
-                  </div>
-
-                  {/* Actions buttons */}
-                  <div className="flex items-center justify-between gap-2">
+              return (
+                <div
+                  key={note.id}
+                  className={`bg-white rounded-2xl p-4 sm:p-5 shadow-xs border transition hover:shadow-md ${
+                    isUrgent && note.status === 'pendiente'
+                      ? 'border-rose-300 ring-1 ring-rose-200'
+                      : 'border-slate-200'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                     
-                    {/* Primary Status action */}
-                    {isPending ? (
-                      <button
-                        onClick={() => handleMarkAsCalled(note)}
-                        className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs"
-                      >
-                        <PhoneCall className="w-3.5 h-3.5" />
-                        <span>✓ Pedir en Llamada</span>
-                      </button>
-                    ) : isTransmitted ? (
-                      <button
-                        onClick={() => handleMarkAsResolved(note)}
-                        className="flex-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>✓ Marcar Resuelto</span>
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => onToggleStatus(note, 'pendiente')}
-                        className="flex-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition text-center"
-                      >
-                        Reabrir a Pendiente
-                      </button>
-                    )}
+                    {/* Main Note Content */}
+                    <div className="space-y-2 flex-1">
+                      
+                      {/* Badge row */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* Author */}
+                        <span className="w-7 h-7 rounded-lg bg-slate-900 text-emerald-400 font-black text-xs flex items-center justify-center shrink-0">
+                          {note.author}
+                        </span>
 
-                    {/* Edit & Delete */}
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => onEditNote(note)}
-                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition"
-                        title="Editar petición"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => onDeleteNote(note.id)}
-                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition"
-                        title="Eliminar de la agenda"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                        {/* Date badge */}
+                        <span className="px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-700 font-extrabold text-[11px] border border-slate-200 flex items-center gap-1">
+                          <Calendar className="w-3 h-3 text-slate-500" />
+                          <span>Fecha: {targetFormatted}</span>
+                        </span>
+
+                        {/* Category */}
+                        <span className={`px-2.5 py-0.5 rounded-lg font-bold text-[11px] border flex items-center gap-1 ${cat.badgeClass}`}>
+                          <CatIcon className="w-3 h-3" />
+                          <span>{cat.label}</span>
+                        </span>
+
+                        {/* Priority */}
+                        {isUrgent && (
+                          <span className="px-2 py-0.5 rounded-lg bg-rose-600 text-white font-black text-[10px] uppercase tracking-wider flex items-center gap-1 animate-pulse">
+                            <AlertTriangle className="w-3 h-3" />
+                            <span>Urgente</span>
+                          </span>
+                        )}
+
+                        {/* Status */}
+                        {note.status === 'pendiente' && (
+                          <span className="px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 border border-amber-200 font-extrabold text-[10px]">
+                            Pendiente Llamada
+                          </span>
+                        )}
+                        {note.status === 'transmitido' && (
+                          <span className="px-2 py-0.5 rounded-lg bg-blue-100 text-blue-900 border border-blue-200 font-extrabold text-[10px]">
+                            Transmitido
+                          </span>
+                        )}
+                        {note.status === 'resuelto' && (
+                          <span className="px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-200 font-extrabold text-[10px]">
+                            Resuelto
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Title */}
+                      <h4 className="text-base font-extrabold text-slate-900">
+                        {note.title}
+                      </h4>
+
+                      {/* Description */}
+                      {note.description && (
+                        <p className="text-xs text-slate-600 leading-relaxed font-medium bg-slate-50/80 p-3 rounded-xl border border-slate-100">
+                          {note.description}
+                        </p>
+                      )}
+
+                      {/* Response / Resolution note */}
+                      {note.responseNotes && (
+                        <div className="text-xs text-emerald-900 bg-emerald-50/80 p-2.5 rounded-xl border border-emerald-200 flex items-start gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                          <div>
+                            <strong className="block font-bold">Respuesta de Administración:</strong>
+                            <span>{note.responseNotes}</span>
+                          </div>
+                        </div>
+                      )}
+
+                    </div>
+
+                    {/* Action buttons on the card */}
+                    <div className="flex sm:flex-col items-center sm:items-end gap-1.5 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                      
+                      {/* State transition button */}
+                      {note.status === 'pendiente' && (
+                        <button
+                          onClick={() => onToggleStatus(note, 'transmitido')}
+                          className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-xl text-xs font-bold transition flex items-center gap-1"
+                          title="Marcar como transmitido en la llamada"
+                        >
+                          <PhoneCall className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Transmitir</span>
+                        </button>
+                      )}
+
+                      {note.status === 'transmitido' && (
+                        <button
+                          onClick={() => onToggleStatus(note, 'resuelto')}
+                          className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition flex items-center gap-1"
+                          title="Marcar como resuelto"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Resolver</span>
+                        </button>
+                      )}
+
+                      {note.status === 'resuelto' && (
+                        <button
+                          onClick={() => onToggleStatus(note, 'pendiente')}
+                          className="px-2.5 py-1 text-slate-400 hover:text-slate-700 rounded-lg text-xs font-medium transition"
+                          title="Reabrir petición"
+                        >
+                          Reabrir
+                        </button>
+                      )}
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => onEditNote(note)}
+                          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+                          title="Editar nota"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          onClick={() => onDeleteNote(note.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                          title="Eliminar nota"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
                     </div>
 
                   </div>
-
                 </div>
-
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Practical Tips Card */}
-      <div className="bg-slate-900 text-white rounded-3xl p-6 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <h4 className="text-sm font-black text-white flex items-center gap-2">
-            <span>💡 Cómo funciona la Agenda de Administración</span>
-          </h4>
-          <p className="text-xs text-slate-300 leading-relaxed max-w-2xl">
-            Cualquier residente o encargado puede anotar dudas, compras o cambios. Por la mañana, el director abre esta pantalla o activa el <strong>Modo Llamada</strong> y pasa la lista directamente al personal de administración de la sede central o secretaría.
-          </p>
-        </div>
-        <button
-          onClick={() => onOpenAddModal()}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs shrink-0 shadow-sm"
-        >
-          + Añadir Petición
-        </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
     </div>

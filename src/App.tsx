@@ -7,6 +7,7 @@ import { GuestsView } from './components/GuestsView';
 import { AdminAgendaView } from './components/AdminAgendaView';
 import { GuestModal } from './components/GuestModal';
 import { AdminNoteModal } from './components/AdminNoteModal';
+import { AbsenceModal } from './components/AbsenceModal';
 import { SupabaseConfigModal } from './components/SupabaseConfigModal';
 import { ResidentManagerModal } from './components/ResidentManagerModal';
 import { 
@@ -20,9 +21,13 @@ import {
   deleteGuestEntry,
   loadAllAdminNotes,
   saveAdminNote,
-  deleteAdminNote
+  deleteAdminNote,
+  loadAllAbsences,
+  saveAbsence,
+  deleteAbsence
 } from './services/storageService';
 import { 
+  AbsenceRecord,
   AdminNote, 
   AdminNoteStatus, 
   DayOfWeek, 
@@ -34,6 +39,7 @@ import {
   SupabaseConfig 
 } from './types';
 import { DAYS, createDefaultWeekSchedule } from './constants';
+import { getDayISOString, isDayInAbsence } from './utils/dateUtils';
 import { Users } from 'lucide-react';
 
 export default function App() {
@@ -41,10 +47,12 @@ export default function App() {
   const [residents, setResidents] = useState<Resident[]>(getStoredResidents());
   const [selectedResidentId, setSelectedResidentId] = useState<number>(1);
   const [selectedDay, setSelectedDay] = useState<DayOfWeek>('lunes');
+  const [weekOffset, setWeekOffset] = useState<number>(0);
   
   const [allPreferences, setAllPreferences] = useState<Record<number, ResidentWeeklySchedule>>({});
   const [guests, setGuests] = useState<GuestEntry[]>([]);
   const [adminNotes, setAdminNotes] = useState<AdminNote[]>([]);
+  const [absences, setAbsences] = useState<AbsenceRecord[]>([]);
   
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>({
     url: '',
@@ -60,8 +68,12 @@ export default function App() {
   const [isResidentModalOpen, setIsResidentModalOpen] = useState<boolean>(false);
   const [isGuestModalOpen, setIsGuestModalOpen] = useState<boolean>(false);
   const [isAdminNoteModalOpen, setIsAdminNoteModalOpen] = useState<boolean>(false);
+  const [isAbsenceModalOpen, setIsAbsenceModalOpen] = useState<boolean>(false);
+  const [absenceInitialResidentId, setAbsenceInitialResidentId] = useState<number | undefined>(undefined);
+  
   const [noteToEdit, setNoteToEdit] = useState<AdminNote | null>(null);
   const [initialNoteAuthor, setInitialNoteAuthor] = useState<string>('ILC');
+  const [initialNoteDate, setInitialNoteDate] = useState<string | undefined>(undefined);
 
   const [guestModalPreset, setGuestModalPreset] = useState<{
     day: DayOfWeek;
@@ -80,21 +92,29 @@ export default function App() {
 
     const loadData = async () => {
       setIsLoading(true);
-      const [resPref, resGuests, resNotes] = await Promise.all([
+      const [resPref, resGuests, resNotes, resAbsences] = await Promise.all([
         loadAllPreferences(),
         loadAllGuests(),
         loadAllAdminNotes(),
+        loadAllAbsences(),
       ]);
 
       setAllPreferences(resPref.data);
       setSyncSource(resPref.source);
       setGuests(resGuests.data);
       setAdminNotes(resNotes.data);
+      setAbsences(resAbsences.data);
       setIsLoading(false);
     };
 
     loadData();
   }, []);
+
+  // Week navigation controls
+  const handlePreviousWeek = () => setWeekOffset((prev) => prev - 1);
+  const handleNextWeek = () => setWeekOffset((prev) => prev + 1);
+  const handleCurrentWeek = () => setWeekOffset(0);
+  const handleSetWeekOffset = (offset: number) => setWeekOffset(offset);
 
   // Current resident schedule
   const currentResidentSchedule = allPreferences[selectedResidentId] || createDefaultWeekSchedule();
@@ -234,9 +254,10 @@ export default function App() {
   };
 
   // Admin Agenda Notes Handlers
-  const handleOpenAddAdminNoteModal = (author?: string) => {
+  const handleOpenAddAdminNoteModal = (author?: string, targetDate?: string) => {
     const curRes = residents.find((r) => r.id === selectedResidentId);
     setInitialNoteAuthor(author || curRes?.name || residents[0]?.name || 'ILC');
+    setInitialNoteDate(targetDate || getDayISOString(selectedDay, weekOffset));
     setNoteToEdit(null);
     setIsAdminNoteModalOpen(true);
   };
@@ -283,6 +304,35 @@ export default function App() {
     setIsSaving(false);
   };
 
+  // Absence Management Handlers
+  const handleOpenAbsenceModal = (initialResidentId?: number) => {
+    setAbsenceInitialResidentId(initialResidentId || selectedResidentId);
+    setIsAbsenceModalOpen(true);
+  };
+
+  const handleSaveAbsence = async (newAbsence: AbsenceRecord) => {
+    setAbsences((prev) => {
+      const idx = prev.findIndex((a) => a.id === newAbsence.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = newAbsence;
+        return next;
+      }
+      return [newAbsence, ...prev];
+    });
+
+    setIsSaving(true);
+    await saveAbsence(newAbsence);
+    setIsSaving(false);
+  };
+
+  const handleDeleteAbsence = async (id: string) => {
+    setAbsences((prev) => prev.filter((a) => a.id !== id));
+    setIsSaving(true);
+    await deleteAbsence(id);
+    setIsSaving(false);
+  };
+
   const handleConfigUpdated = (newConfig: SupabaseConfig) => {
     setSupabaseConfig(newConfig);
     // Reload data with new configuration
@@ -296,6 +346,9 @@ export default function App() {
     loadAllAdminNotes().then((res) => {
       setAdminNotes(res.data);
     });
+    loadAllAbsences().then((res) => {
+      setAbsences(res.data);
+    });
   };
 
   const handleSaveResidents = (newResidents: Resident[]) => {
@@ -306,9 +359,12 @@ export default function App() {
   const guestCountTotal = guests.reduce((sum, g) => sum + g.count, 0);
   const pendingAdminNotesCount = adminNotes.filter((n) => n.status === 'pendiente').length;
 
-  // Calculate confirmed physical residents on the selected day
+  // Calculate confirmed physical residents on the selected day factoring in absences
   const confirmedResidentsCount = useMemo(() => {
     return residents.filter((r) => {
+      const isAbsent = isDayInAbsence(selectedDay, weekOffset, absences, r.id);
+      if (isAbsent) return false;
+
       const sched = allPreferences[r.id];
       if (!sched) return false;
       const dayPref = sched[selectedDay];
@@ -321,7 +377,7 @@ export default function App() {
         dayPref.cena_tupper
       );
     }).length;
-  }, [residents, allPreferences, selectedDay]);
+  }, [residents, allPreferences, selectedDay, weekOffset, absences]);
 
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
@@ -339,6 +395,7 @@ export default function App() {
         confirmedResidentsCount={confirmedResidentsCount}
         totalResidentsCount={residents.length}
         selectedDay={selectedDay}
+        weekOffset={weekOffset}
       />
 
       {/* Main Content Body */}
@@ -359,12 +416,19 @@ export default function App() {
                 onSelectResident={setSelectedResidentId}
                 selectedDay={selectedDay}
                 onSelectDay={setSelectedDay}
+                weekOffset={weekOffset}
+                onSetWeekOffset={handleSetWeekOffset}
+                onPreviousWeek={handlePreviousWeek}
+                onNextWeek={handleNextWeek}
+                onCurrentWeek={handleCurrentWeek}
                 weeklySchedule={currentResidentSchedule}
                 onUpdateMealSelection={handleUpdateMealSelection}
                 onApplyPreset={handleApplyPreset}
                 guests={guests}
                 onOpenAddGuestModal={handleOpenAddGuestModal}
                 onDeleteGuest={handleDeleteGuest}
+                absences={absences}
+                onOpenAbsenceModal={handleOpenAbsenceModal}
                 isSaving={isSaving}
                 syncSource={syncSource}
                 confirmedResidentsCount={confirmedResidentsCount}
@@ -378,6 +442,13 @@ export default function App() {
                 guests={guests}
                 selectedDay={selectedDay}
                 onSelectDay={setSelectedDay}
+                weekOffset={weekOffset}
+                onSetWeekOffset={handleSetWeekOffset}
+                onPreviousWeek={handlePreviousWeek}
+                onNextWeek={handleNextWeek}
+                onCurrentWeek={handleCurrentWeek}
+                absences={absences}
+                onOpenAbsenceModal={handleOpenAbsenceModal}
                 onOpenAddGuestModal={handleOpenAddGuestModal}
                 onDeleteGuest={handleDeleteGuest}
                 syncSource={syncSource}
@@ -390,6 +461,11 @@ export default function App() {
                 residents={residents}
                 selectedDay={selectedDay}
                 onSelectDay={setSelectedDay}
+                weekOffset={weekOffset}
+                onSetWeekOffset={handleSetWeekOffset}
+                onPreviousWeek={handlePreviousWeek}
+                onNextWeek={handleNextWeek}
+                onCurrentWeek={handleCurrentWeek}
                 onOpenAddModal={(day, mealType, host) => handleOpenAddGuestModal(day, mealType, host)}
                 onDeleteGuest={handleDeleteGuest}
               />
@@ -399,6 +475,13 @@ export default function App() {
               <AdminAgendaView
                 notes={adminNotes}
                 residents={residents}
+                selectedDay={selectedDay}
+                onSelectDay={setSelectedDay}
+                weekOffset={weekOffset}
+                onSetWeekOffset={handleSetWeekOffset}
+                onPreviousWeek={handlePreviousWeek}
+                onNextWeek={handleNextWeek}
+                onCurrentWeek={handleCurrentWeek}
                 onOpenAddModal={handleOpenAddAdminNoteModal}
                 onEditNote={handleEditAdminNote}
                 onDeleteNote={handleDeleteAdminNote}
@@ -469,7 +552,18 @@ export default function App() {
         noteToEdit={noteToEdit}
         residents={residents}
         initialAuthor={initialNoteAuthor}
+        initialDate={initialNoteDate}
         onSaveNote={handleSaveAdminNote}
+      />
+
+      <AbsenceModal
+        isOpen={isAbsenceModalOpen}
+        onClose={() => setIsAbsenceModalOpen(false)}
+        residents={residents}
+        absences={absences}
+        initialResidentId={absenceInitialResidentId}
+        onSaveAbsence={handleSaveAbsence}
+        onDeleteAbsence={handleDeleteAbsence}
       />
 
     </div>

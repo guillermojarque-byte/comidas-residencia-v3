@@ -18,17 +18,22 @@ import {
   AlertCircle,
   Sunrise,
   ArrowRight,
-  ShieldCheck
+  ShieldCheck,
+  Plane,
+  CheckCircle2
 } from 'lucide-react';
 import { DAYS, GUEST_MENU_LABELS, GUEST_SERVICE_LABELS } from '../constants';
-import { DayOfWeek, GuestEntry, GuestMealType, Resident, ResidentWeeklySchedule } from '../types';
+import { AbsenceRecord, DayOfWeek, GuestEntry, GuestMealType, Resident, ResidentWeeklySchedule } from '../types';
 import { 
   getDayShortFormatted, 
   getDayFullFormatted, 
   getDayDateOnly, 
   getNextDayOfWeek, 
-  formatMealsSummary 
+  formatMealsSummary,
+  isDayInAbsence,
+  getWeekRangeLabel
 } from '../utils/dateUtils';
+import { WeekNavigator } from './WeekNavigator';
 
 interface KitchenViewProps {
   residents: Resident[];
@@ -36,6 +41,13 @@ interface KitchenViewProps {
   guests: GuestEntry[];
   selectedDay: DayOfWeek;
   onSelectDay: (day: DayOfWeek) => void;
+  weekOffset: number;
+  onSetWeekOffset: (offset: number) => void;
+  onPreviousWeek: () => void;
+  onNextWeek: () => void;
+  onCurrentWeek: () => void;
+  absences: AbsenceRecord[];
+  onOpenAbsenceModal: (initialResidentId?: number) => void;
   onOpenAddGuestModal: (day: DayOfWeek, mealType?: GuestMealType) => void;
   onDeleteGuest: (id: string) => void;
   syncSource: 'supabase' | 'local';
@@ -47,14 +59,21 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
   guests,
   selectedDay,
   onSelectDay,
+  weekOffset,
+  onSetWeekOffset,
+  onPreviousWeek,
+  onNextWeek,
+  onCurrentWeek,
+  absences,
+  onOpenAbsenceModal,
   onOpenAddGuestModal,
   onDeleteGuest,
   syncSource,
 }) => {
   const [kitchenMode, setKitchenMode] = useState<'day' | 'week' | 'board'>('day');
 
-  // Compute daily totals including guests
-  const computeDayTotals = (day: DayOfWeek) => {
+  // Compute daily totals including guests and factoring in absences
+  const computeDayTotals = (day: DayOfWeek, offset: number = weekOffset) => {
     // 1. Resident counts
     let resDesayuno = 0;
     let resComida1 = 0;
@@ -63,8 +82,16 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
     let resCena1 = 0;
     let resCena2 = 0;
     let resCenaTupper = 0;
+    let resAbsentCount = 0;
 
     residents.forEach((r) => {
+      // Check if resident is absent on this day
+      const absence = isDayInAbsence(day, offset, absences, r.id);
+      if (absence) {
+        resAbsentCount++;
+        return; // No meals counted for absent resident
+      }
+
       const schedule = allPreferences[r.id];
       const dayData = schedule ? schedule[day] : null;
 
@@ -135,6 +162,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
       resDesayuno,
       guestDesayuno,
       totalDesayuno,
+      resAbsentCount,
 
       resComida1,
       resComida2,
@@ -172,13 +200,20 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
 
   // Next day calculations for Dirección / Cocina morning preparation
   const nextDay = getNextDayOfWeek(selectedDay);
-  const nextDayTotals = computeDayTotals(nextDay);
+  const nextDayWeekOffset = selectedDay === 'domingo' ? weekOffset + 1 : weekOffset;
+  const nextDayTotals = computeDayTotals(nextDay, nextDayWeekOffset);
   const nextDayMeta = DAYS.find((d) => d.id === nextDay);
+
   const residentsBreakfastNextDay = residents.filter((r) => {
+    const isAbsent = isDayInAbsence(nextDay, nextDayWeekOffset, absences, r.id);
+    if (isAbsent) return false;
     const sched = allPreferences[r.id];
     return sched?.[nextDay]?.desayuno_en_casa;
   });
+
   const residentsNoBreakfastNextDay = residents.filter((r) => {
+    const isAbsent = isDayInAbsence(nextDay, nextDayWeekOffset, absences, r.id);
+    if (isAbsent) return true;
     const sched = allPreferences[r.id];
     return !sched?.[nextDay]?.desayuno_en_casa;
   });
@@ -196,14 +231,14 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-1 bg-amber-100 text-amber-900 font-bold rounded-lg text-xs flex items-center gap-1.5">
               <Utensils className="w-3.5 h-3.5" />
-              Panel de Cocina y Comedor
+              Panel de Cocina y Pedidos
             </span>
             <span className="text-xs text-slate-500 font-medium">
               10 Residentes + Comensales Invitados
             </span>
           </div>
           <h2 className="text-xl font-extrabold text-slate-900 mt-1">
-            Recuento Total de Raciones, Turnos y Tuppers
+            Recuento Nominal de Raciones y Turnos
           </h2>
         </div>
 
@@ -214,15 +249,15 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
             <button
               onClick={() => setKitchenMode('day')}
               className={`px-3 py-1.5 rounded-lg transition ${
-                kitchenMode === 'day' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                kitchenMode === 'day' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Día a Día
+              Turnos de Hoy
             </button>
             <button
               onClick={() => setKitchenMode('week')}
               className={`px-3 py-1.5 rounded-lg transition ${
-                kitchenMode === 'week' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                kitchenMode === 'week' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               Semana Completa
@@ -230,13 +265,23 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
             <button
               onClick={() => setKitchenMode('board')}
               className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1 ${
-                kitchenMode === 'board' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                kitchenMode === 'board' ? 'bg-slate-900 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               <Maximize2 className="w-3 h-3" />
               <span>Pizarra</span>
             </button>
           </div>
+
+          {/* Absence Management Trigger */}
+          <button
+            onClick={() => onOpenAbsenceModal()}
+            className="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
+            title="Registrar o consultar ausencias y viajes"
+          >
+            <Plane className="w-3.5 h-3.5 text-amber-700" />
+            <span>Viajes / Ausencias ({absences.length})</span>
+          </button>
 
           <button
             onClick={() => onOpenAddGuestModal(selectedDay)}
@@ -257,13 +302,22 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
         </div>
       </div>
 
-      {/* Selector de Días */}
+      {/* Week Navigator */}
+      <WeekNavigator
+        weekOffset={weekOffset}
+        onSetWeekOffset={onSetWeekOffset}
+        onPreviousWeek={onPreviousWeek}
+        onNextWeek={onNextWeek}
+        onCurrentWeek={onCurrentWeek}
+      />
+
+      {/* Selector de Días (con cálculo dinámico según weekOffset) */}
       {kitchenMode !== 'week' && (
         <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
           {DAYS.map((day) => {
             const isSelected = day.id === selectedDay;
             const totals = computeDayTotals(day.id);
-            const dateOnly = getDayDateOnly(day.id);
+            const dateOnly = getDayDateOnly(day.id, weekOffset);
             const summaryBadge = formatMealsSummary(totals.totalDesayuno, totals.totalComidaRaciones, totals.totalCenaRaciones);
 
             return (
@@ -306,7 +360,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
       )}
 
       {/* ===================================================================== */}
-      {/* VISTA 1: DÍA A DÍA                                                    */}
+      {/* VISTA 1: DÍA A DÍA / FLUJO DE COCINA                                   */}
       {/* ===================================================================== */}
       {kitchenMode === 'day' && (
         <div className="space-y-6">
@@ -321,10 +375,16 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                 <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 text-xs font-black px-2.5 py-0.5 rounded-full">
                   {formatMealsSummary(dayTotals.totalDesayuno, dayTotals.totalComidaRaciones, dayTotals.totalCenaRaciones)}
                 </span>
+                {dayTotals.resAbsentCount > 0 && (
+                  <span className="bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Plane className="w-3 h-3" />
+                    <span>{dayTotals.resAbsentCount} ausente(s)</span>
+                  </span>
+                )}
               </div>
               
               <h3 className="text-2xl font-black text-white capitalize">
-                {getDayFullFormatted(selectedDay)}
+                {getDayFullFormatted(selectedDay, weekOffset)}
               </h3>
               
               <p className="text-xs text-slate-300">
@@ -364,308 +424,374 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                   ({dayTotals.totalComida2} com / {dayTotals.totalCena2} cen)
                 </span>
               </div>
-
-              {dayTotals.dayGuests.length > 0 && (
-                <div className="bg-indigo-950 px-3.5 py-2 rounded-xl border border-indigo-700 text-center">
-                  <span className="text-indigo-300 block text-[10px] uppercase font-bold">Invitados Hoy</span>
-                  <span className="text-lg font-black text-indigo-200">
-                    +{dayTotals.dayGuests.reduce((s, g) => s + g.count, 0)}
-                  </span>
-                  <span className="text-[10px] text-indigo-300 block">
-                    comensales
-                  </span>
-                </div>
-              )}
             </div>
           </div>
 
           {/* ================================================================= */}
-          {/* TARJETA DESTACADA: PREVISIÓN DE DESAYUNOS PARA MAÑANA (DIRECCIÓN) */}
+          {/* TARJETA DESTACADA: DESAYUNOS DEL DÍA SIGUIENTE                    */}
           {/* ================================================================= */}
-          <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-slate-50 rounded-2xl p-5 md:p-6 border-2 border-amber-400/60 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="px-2.5 py-1 bg-amber-500 text-slate-950 font-black text-xs rounded-lg flex items-center gap-1.5 shadow-2xs uppercase tracking-wider">
-                  <Sunrise className="w-4 h-4" />
-                  Previsión Dirección & Cocina (Día Siguiente)
-                </span>
-                <span className="text-xs font-bold text-amber-900 bg-amber-100 px-2.5 py-0.5 rounded-full border border-amber-300">
-                  {getDayFullFormatted(nextDay)}
-                </span>
-              </div>
-
-              <div>
-                <div className="flex flex-wrap items-baseline gap-2.5">
-                  <h4 className="text-xl md:text-2xl font-black text-slate-900">
-                    Desayunos Mañana: <span className="text-amber-700 font-extrabold">{nextDayTotals.totalDesayuno}D</span>
-                  </h4>
-                  <span className="text-xs font-extrabold text-amber-900 bg-amber-100/90 px-2.5 py-0.5 rounded-md border border-amber-200">
-                    {nextDayTotals.guestDesayuno > 0 
-                      ? `${nextDayTotals.resDesayuno} Residentes + ${nextDayTotals.guestDesayuno} Invitados` 
-                      : `${nextDayTotals.resDesayuno} de 10 Residentes`}
-                  </span>
+          <div className="bg-gradient-to-r from-amber-500/10 via-amber-50 to-orange-50/60 border-2 border-amber-300/80 rounded-2xl p-5 md:p-6 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-200/70 pb-3.5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-black shadow-sm">
+                  <Sunrise className="w-5 h-5" />
                 </div>
-                <p className="text-xs text-slate-600 mt-1">
-                  Control vespertino para que la dirección y cocina dejen preparadas las raciones, vajilla y bandejas de la mañana siguiente.
-                </p>
-              </div>
-
-              {/* Lista nominal rápida de quién desayuna mañana */}
-              <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                <span className="text-[11px] font-bold text-slate-500 mr-1">Residentes confirmados ({residentsBreakfastNextDay.length}):</span>
-                {residentsBreakfastNextDay.map((r) => (
-                  <span 
-                    key={r.id} 
-                    className="px-2 py-0.5 bg-white text-slate-800 border border-amber-200 rounded-md text-[11px] font-bold shadow-2xs"
-                    title={`${r.name} desayuna en comedor mañana`}
-                  >
-                    {r.name}
-                  </span>
-                ))}
-                {residentsNoBreakfastNextDay.length > 0 && (
-                  <span className="text-[11px] text-slate-400 italic ml-1">
-                    (No desayunan: {residentsNoBreakfastNextDay.map((r) => r.name).join(', ')})
-                  </span>
-                )}
-                {nextDayTotals.guestDesayuno > 0 && (
-                  <span className="px-2 py-0.5 bg-indigo-600 text-white rounded-md text-[11px] font-black">
-                    +{nextDayTotals.guestDesayuno} inv
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="shrink-0 flex items-center md:flex-col md:items-end justify-between gap-2 border-t md:border-t-0 pt-3 md:pt-0 border-amber-200/60">
-              <button
-                onClick={() => onSelectDay(nextDay)}
-                className="px-3.5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl text-xs flex items-center gap-1.5 transition shadow-xs"
-              >
-                <span>Ver Menú de Mañana ({nextDayMeta?.label})</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          {/* 3 Tarjetas de Resumen por Comida */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            
-            {/* 1. DESAYUNO */}
-            <div className="bg-amber-50/70 rounded-2xl p-5 border border-amber-200 shadow-xs flex flex-col justify-between space-y-4">
-              <div>
-                <div className="flex items-center justify-between mb-3">
+                <div>
                   <div className="flex items-center gap-2">
-                    <span className="p-2 rounded-xl bg-amber-100 text-amber-800">
-                      <Coffee className="w-5 h-5" />
+                    <span className="text-[11px] font-black uppercase tracking-wider text-amber-900 bg-amber-200/80 px-2 py-0.5 rounded-md">
+                      Preparación de Cocina / Dirección
                     </span>
-                    <div>
-                      <h4 className="font-extrabold text-slate-900 text-base">Desayuno</h4>
-                      <span className="text-xs text-slate-500">07:30 - 09:30</span>
-                    </div>
+                    <span className="text-xs text-amber-800 font-semibold">
+                      Para dejar listo esta tarde/noche
+                    </span>
                   </div>
-                  <div className="text-right">
-                    <span className="text-2xl font-black text-amber-900 block">
-                      {dayTotals.totalDesayuno}D
-                    </span>
-                    {dayTotals.guestDesayuno > 0 && (
-                      <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200">
-                        {dayTotals.resDesayuno} Res + {dayTotals.guestDesayuno} Inv
-                      </span>
+                  <h3 className="text-lg font-black text-slate-900 mt-0.5">
+                    ☕ Desayunos de Mañana ({nextDayMeta?.label} {getDayDateOnly(nextDay, nextDayWeekOffset)})
+                  </h3>
+                </div>
+              </div>
+
+              {/* Total Badge */}
+              <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-2xl border border-amber-300 shadow-xs">
+                <div className="text-right">
+                  <span className="text-[10px] uppercase font-extrabold text-slate-500 block">
+                    Total Confirmados Mañana
+                  </span>
+                  <div className="text-xs text-slate-600 font-bold">
+                    {nextDayTotals.guestDesayuno > 0 ? (
+                      <span>{nextDayTotals.resDesayuno} Residentes + {nextDayTotals.guestDesayuno} Invitados</span>
+                    ) : (
+                      <span>{nextDayTotals.resDesayuno} Residentes</span>
                     )}
                   </div>
                 </div>
+                <div className="text-2xl font-black text-amber-600 bg-amber-100 px-3 py-1 rounded-xl">
+                  {nextDayTotals.totalDesayuno}D
+                </div>
+              </div>
+            </div>
 
-                <div className="space-y-2 text-xs">
-                  <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-amber-100">
-                    <span className="font-semibold text-slate-700">Residentes en comedor:</span>
-                    <span className="font-bold text-slate-900">{dayTotals.resDesayuno} / 10</span>
-                  </div>
-
-                  {dayTotals.guestDesayuno > 0 && (
-                    <div className="flex items-center justify-between bg-indigo-50 p-2.5 rounded-xl border border-indigo-100 text-indigo-900">
-                      <span className="font-semibold">Invitados extra:</span>
-                      <span className="font-black">+{dayTotals.guestDesayuno}</span>
-                    </div>
+            {/* Resident breakdown lists */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div className="bg-white/80 rounded-xl p-3.5 border border-amber-200 space-y-2">
+                <span className="font-extrabold text-amber-900 flex items-center gap-1.5">
+                  <Check className="w-4 h-4 text-emerald-600" />
+                  <span>Desayunan Mañana ({residentsBreakfastNextDay.length} residentes):</span>
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {residentsBreakfastNextDay.map((r) => (
+                    <span
+                      key={r.id}
+                      className="px-2.5 py-1 bg-amber-100 text-amber-900 font-bold rounded-lg border border-amber-300 text-xs"
+                    >
+                      {r.name}
+                    </span>
+                  ))}
+                  {residentsBreakfastNextDay.length === 0 && (
+                    <span className="text-slate-400 italic">Ningún residente confirmado</span>
                   )}
                 </div>
               </div>
 
-              <div className="pt-2 border-t border-amber-200/60 text-xs text-amber-900 font-medium">
-                ☕ Raciones totales a preparar: <strong>{dayTotals.totalDesayuno}D</strong> ({dayTotals.guestDesayuno > 0 ? `${dayTotals.resDesayuno}D + ${dayTotals.guestDesayuno} Inv` : `${dayTotals.resDesayuno}/10 Residentes`})
-              </div>
-            </div>
-
-            {/* 2. COMIDA */}
-            <div className="bg-emerald-50/70 rounded-2xl p-5 border border-emerald-200 shadow-xs flex flex-col justify-between space-y-4">
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="p-2 rounded-xl bg-emerald-100 text-emerald-800">
-                      <UtensilsCrossed className="w-5 h-5" />
-                    </span>
-                    <div>
-                      <h4 className="font-extrabold text-slate-900 text-base">Comida</h4>
-                      <span className="text-xs text-slate-500">13:30 - 15:30</span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-2xl font-black text-emerald-900 block">
-                      {dayTotals.totalComidaRaciones}C
-                    </span>
-                    {dayTotals.guestComidaTotal > 0 && (
-                      <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200">
-                        {dayTotals.resComidaTotal} Res + {dayTotals.guestComidaTotal} Inv
+              <div className="bg-white/80 rounded-xl p-3.5 border border-slate-200 space-y-2">
+                <span className="font-extrabold text-slate-700 flex items-center gap-1.5">
+                  <X className="w-4 h-4 text-slate-400" />
+                  <span>No desayunan o ausentes ({residentsNoBreakfastNextDay.length} residentes):</span>
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {residentsNoBreakfastNextDay.map((r) => {
+                    const isAbsent = isDayInAbsence(nextDay, nextDayWeekOffset, absences, r.id);
+                    return (
+                      <span
+                        key={r.id}
+                        className={`px-2 py-0.5 rounded-lg font-semibold text-xs ${
+                          isAbsent
+                            ? 'bg-rose-50 text-rose-700 border border-rose-200 line-through'
+                            : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {r.name} {isAbsent ? '(Viaje)' : ''}
                       </span>
-                    )}
-                  </div>
+                    );
+                  })}
                 </div>
-
-                <div className="space-y-2 text-xs">
-                  <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-emerald-100">
-                    <span className="font-semibold text-slate-700">1er Turno (13:30):</span>
-                    <span className="font-bold text-emerald-800 text-sm">
-                      {dayTotals.totalComida1} platos {dayTotals.guestComida1 > 0 ? `(${dayTotals.resComida1} + ${dayTotals.guestComida1} Inv)` : ''}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-emerald-100">
-                    <span className="font-semibold text-slate-700">2º Turno (14:45):</span>
-                    <span className="font-bold text-amber-700 text-sm">
-                      {dayTotals.totalComida2} platos {dayTotals.guestComida2 > 0 ? `(${dayTotals.resComida2} + ${dayTotals.guestComida2} Inv)` : ''}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-emerald-100">
-                    <span className="font-semibold text-slate-700">Para llevar (Tupper):</span>
-                    <span className="font-bold text-indigo-700 text-sm">
-                      {dayTotals.totalComidaTupper} tuppers {dayTotals.guestComidaTupper > 0 ? `(${dayTotals.resComidaTupper} + ${dayTotals.guestComidaTupper} Inv)` : ''}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-2 border-t border-emerald-200/60 text-xs text-emerald-900 font-medium">
-                🍲 Total comida: <strong>{dayTotals.totalComidaRaciones}C</strong> ({dayTotals.guestComidaTotal > 0 ? `${dayTotals.resComidaTotal}C + ${dayTotals.guestComidaTotal} Inv` : `${dayTotals.resComidaTotal}C de 10 Residentes`})
               </div>
             </div>
-
-            {/* 3. CENA */}
-            <div className="bg-indigo-50/70 rounded-2xl p-5 border border-indigo-200 shadow-xs flex flex-col justify-between space-y-4">
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="p-2 rounded-xl bg-indigo-100 text-indigo-800">
-                      <Moon className="w-5 h-5" />
-                    </span>
-                    <div>
-                      <h4 className="font-extrabold text-slate-900 text-base">Cena</h4>
-                      <span className="text-xs text-slate-500">20:30 - 22:00</span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-2xl font-black text-indigo-900 block">
-                      {dayTotals.totalCenaRaciones}Cn
-                    </span>
-                    {dayTotals.guestCenaTotal > 0 && (
-                      <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200">
-                        {dayTotals.resCenaTotal} Res + {dayTotals.guestCenaTotal} Inv
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-2 text-xs">
-                  <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-indigo-100">
-                    <span className="font-semibold text-slate-700">1er Turno (20:30):</span>
-                    <span className="font-bold text-indigo-800 text-sm">
-                      {dayTotals.totalCena1} platos {dayTotals.guestCena1 > 0 ? `(${dayTotals.resCena1} + ${dayTotals.guestCena1} Inv)` : ''}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-indigo-100">
-                    <span className="font-semibold text-slate-700">2º Turno (21:30):</span>
-                    <span className="font-bold text-amber-700 text-sm">
-                      {dayTotals.totalCena2} platos {dayTotals.guestCena2 > 0 ? `(${dayTotals.resCena2} + ${dayTotals.guestCena2} Inv)` : ''}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-indigo-100">
-                    <span className="font-semibold text-slate-700">Para llevar (Tupper):</span>
-                    <span className="font-bold text-purple-700 text-sm">
-                      {dayTotals.totalCenaTupper} tuppers {dayTotals.guestCenaTupper > 0 ? `(${dayTotals.resCenaTupper} + ${dayTotals.guestCenaTupper} Inv)` : ''}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-2 border-t border-indigo-200/60 text-xs text-indigo-900 font-medium">
-                🌙 Total cena: <strong>{dayTotals.totalCenaRaciones}Cn</strong> ({dayTotals.guestCenaTotal > 0 ? `${dayTotals.resCenaTotal}Cn + ${dayTotals.guestCenaTotal} Inv` : `${dayTotals.resCenaTotal}Cn de 10 Residentes`})
-              </div>
-            </div>
-
           </div>
 
-          {/* Sección de Invitados del Día */}
+          {/* ================================================================= */}
+          {/* TABLA NOMINAL DE COCINA [Comida Hoy | Cena Hoy | Desayuno Mañana] */}
+          {/* ================================================================= */}
           <div className="bg-white rounded-2xl p-5 md:p-6 shadow-sm border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <Users className="w-5 h-5 text-indigo-600" />
-                <h3 className="text-base font-extrabold text-slate-900">
-                  Comensales Invitados para {currentDayMeta?.label} ({dayTotals.dayGuests.reduce((s, g) => s + g.count, 0)})
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                  <span>📋 Flujo de Cocina y Pedidos ({getDayFullFormatted(selectedDay, weekOffset)})</span>
                 </h3>
+                <p className="text-xs text-slate-500">
+                  Organizado por orden de servicio: Comida de Hoy, Cena de Hoy y Desayuno de Mañana
+                </p>
               </div>
 
-              <button
-                onClick={() => onOpenAddGuestModal(selectedDay)}
-                className="text-xs font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl border border-indigo-200 flex items-center gap-1 transition"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ Registrar Invitado</span>
-              </button>
+              <div className="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1 rounded-xl">
+                10 Residentes ({10 - dayTotals.resAbsentCount} presentes / {dayTotals.resAbsentCount} ausentes)
+              </div>
             </div>
 
-            {dayTotals.dayGuests.length === 0 ? (
-              <p className="text-xs text-slate-500 py-3 italic">
-                No hay comensales invitados registrados para este día.
-              </p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-900 text-white uppercase font-bold text-[11px]">
+                    <th className="p-3.5 rounded-l-xl">Residente</th>
+                    <th className="p-3.5 text-center bg-emerald-950/60 border-x border-slate-800">
+                      🍲 Comida Hoy ({getDayShortFormatted(selectedDay, weekOffset)})
+                    </th>
+                    <th className="p-3.5 text-center bg-indigo-950/60 border-r border-slate-800">
+                      🌙 Cena Hoy ({getDayShortFormatted(selectedDay, weekOffset)})
+                    </th>
+                    <th className="p-3.5 text-center bg-amber-950/60 border-r border-slate-800">
+                      ☕ Desayuno Mañana ({nextDayMeta?.short} {getDayDateOnly(nextDay, nextDayWeekOffset)})
+                    </th>
+                    <th className="p-3.5 rounded-r-xl">Observaciones / Estado</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {residents.map((r) => {
+                    const absenceToday = isDayInAbsence(selectedDay, weekOffset, absences, r.id);
+                    const absenceTomorrow = isDayInAbsence(nextDay, nextDayWeekOffset, absences, r.id);
+                    
+                    const prefToday = allPreferences[r.id]?.[selectedDay];
+                    const prefTomorrow = allPreferences[r.id]?.[nextDay];
+
+                    return (
+                      <tr key={r.id} className="hover:bg-slate-50/80 transition">
+                        
+                        {/* Residente Initials */}
+                        <td className="p-3 font-black text-slate-900 flex items-center gap-2">
+                          <span className="w-7 h-7 rounded-lg bg-slate-900 text-emerald-400 flex items-center justify-center text-xs font-black">
+                            {r.name}
+                          </span>
+                          <span className="text-sm font-bold text-slate-800">{r.name}</span>
+                        </td>
+
+                        {/* 1. Comida Hoy */}
+                        <td className="p-3 text-center bg-emerald-50/20">
+                          {absenceToday ? (
+                            <span className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 font-bold border border-rose-200 inline-flex items-center gap-1">
+                              <Plane className="w-3 h-3" />
+                              <span>De Viaje</span>
+                            </span>
+                          ) : prefToday?.comida_tupper ? (
+                            <span className="px-2.5 py-1 rounded-lg bg-indigo-100 text-indigo-900 font-bold inline-flex items-center gap-1">
+                              <Package className="w-3 h-3 text-indigo-700" />
+                              <span>Tupper</span>
+                            </span>
+                          ) : prefToday?.comida_en_casa ? (
+                            prefToday.comida_segundo_turno ? (
+                              <span className="px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 font-bold inline-flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-amber-700" />
+                                <span>2º Turno (14:45)</span>
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-900 font-bold inline-flex items-center gap-1">
+                                <Check className="w-3 h-3 text-emerald-700" />
+                                <span>1er Turno (13:30)</span>
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-slate-300 font-semibold">✕ No</span>
+                          )}
+                        </td>
+
+                        {/* 2. Cena Hoy */}
+                        <td className="p-3 text-center bg-indigo-50/20">
+                          {absenceToday ? (
+                            <span className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 font-bold border border-rose-200 inline-flex items-center gap-1">
+                              <Plane className="w-3 h-3" />
+                              <span>De Viaje</span>
+                            </span>
+                          ) : prefToday?.cena_tupper ? (
+                            <span className="px-2.5 py-1 rounded-lg bg-purple-100 text-purple-900 font-bold inline-flex items-center gap-1">
+                              <Package className="w-3 h-3 text-purple-700" />
+                              <span>Tupper</span>
+                            </span>
+                          ) : prefToday?.cena_en_casa ? (
+                            prefToday.cena_segundo_turno ? (
+                              <span className="px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 font-bold inline-flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-amber-700" />
+                                <span>2º Turno (21:30)</span>
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-1 rounded-lg bg-indigo-100 text-indigo-900 font-bold inline-flex items-center gap-1">
+                                <Check className="w-3 h-3 text-indigo-700" />
+                                <span>1er Turno (20:30)</span>
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-slate-300 font-semibold">✕ No</span>
+                          )}
+                        </td>
+
+                        {/* 3. Desayuno Mañana */}
+                        <td className="p-3 text-center bg-amber-50/20">
+                          {absenceTomorrow ? (
+                            <span className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 font-bold border border-rose-200 inline-flex items-center gap-1">
+                              <Plane className="w-3 h-3" />
+                              <span>De Viaje</span>
+                            </span>
+                          ) : prefTomorrow?.desayuno_en_casa ? (
+                            <span className="px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 font-bold inline-flex items-center gap-1">
+                              <Coffee className="w-3 h-3 text-amber-800" />
+                              <span>Comedor</span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-300 font-semibold">✕ No</span>
+                          )}
+                        </td>
+
+                        {/* Observaciones / Ausencias */}
+                        <td className="p-3 text-slate-600">
+                          {absenceToday ? (
+                            <span className="bg-rose-50 text-rose-800 px-2.5 py-1 rounded-lg font-bold border border-rose-200 inline-flex items-center gap-1">
+                              <Plane className="w-3 h-3 text-rose-600" />
+                              <span>Ausente: {absenceToday.reason || 'Viaje'}</span>
+                            </span>
+                          ) : prefToday?.observaciones ? (
+                            <span className="bg-amber-50 text-amber-900 px-2.5 py-1 rounded-lg font-medium border border-amber-200 inline-block">
+                              {prefToday.observaciones}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300">-</span>
+                          )}
+                        </td>
+
+                      </tr>
+                    );
+                  })}
+                </tbody>
+
+                {/* ============================================================= */}
+                {/* FILA DE TOTALES ACUMULADOS (Residentes + Invitados para Pedido)*/}
+                {/* ============================================================= */}
+                <tfoot>
+                  <tr className="bg-slate-900 text-white font-black border-t-2 border-amber-400">
+                    
+                    {/* Label Col */}
+                    <td className="p-3.5 rounded-bl-xl space-y-0.5">
+                      <div className="text-amber-400 text-xs uppercase tracking-wider font-extrabold">
+                        TOTALES ACUMULADOS
+                      </div>
+                      <div className="text-[10px] text-slate-300 font-semibold">
+                        (Residentes + Invitados)
+                      </div>
+                    </td>
+
+                    {/* Total Comida Hoy */}
+                    <td className="p-3.5 text-center bg-slate-850 border-x border-slate-750 space-y-1">
+                      <div className="text-emerald-400 text-base font-black">
+                        {dayTotals.totalComidaRaciones} Raciones Comida
+                      </div>
+                      <div className="text-[10px] text-emerald-200/90 font-medium">
+                        {dayTotals.totalComida1} 1erT · {dayTotals.totalComida2} 2ºT · {dayTotals.totalComidaTupper} Tup
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        ({dayTotals.resComidaTotal} Res + {dayTotals.guestComidaTotal} Inv)
+                      </div>
+                    </td>
+
+                    {/* Total Cena Hoy */}
+                    <td className="p-3.5 text-center bg-slate-850 border-r border-slate-750 space-y-1">
+                      <div className="text-indigo-400 text-base font-black">
+                        {dayTotals.totalCenaRaciones} Raciones Cena
+                      </div>
+                      <div className="text-[10px] text-indigo-200/90 font-medium">
+                        {dayTotals.totalCena1} 1erT · {dayTotals.totalCena2} 2ºT · {dayTotals.totalCenaTupper} Tup
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        ({dayTotals.resCenaTotal} Res + {dayTotals.guestCenaTotal} Inv)
+                      </div>
+                    </td>
+
+                    {/* Total Desayuno Mañana */}
+                    <td className="p-3.5 text-center bg-slate-850 border-r border-slate-750 space-y-1">
+                      <div className="text-amber-400 text-base font-black">
+                        {nextDayTotals.totalDesayuno} Desayunos
+                      </div>
+                      <div className="text-[10px] text-amber-200/90 font-medium">
+                        (Mañana {nextDayMeta?.short})
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        ({nextDayTotals.resDesayuno} Res + {nextDayTotals.guestDesayuno} Inv)
+                      </div>
+                    </td>
+
+                    {/* Resumen / Código de Pedido */}
+                    <td className="p-3.5 rounded-br-xl space-y-1">
+                      <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">
+                        Código Cocina
+                      </div>
+                      <div className="text-sm font-black text-amber-300">
+                        {dayTotals.totalComidaRaciones}C · {dayTotals.totalCenaRaciones}Cn · {nextDayTotals.totalDesayuno}D
+                      </div>
+                    </td>
+
+                  </tr>
+                </tfoot>
+
+              </table>
+            </div>
+          </div>
+
+          {/* Lista de Invitados para el día */}
+          {dayTotals.dayGuests.length > 0 && (
+            <div className="bg-indigo-50/70 rounded-2xl p-5 border border-indigo-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-black uppercase tracking-wider text-indigo-950 flex items-center gap-1.5">
+                  <Users className="w-4 h-4 text-indigo-700" />
+                  <span>Invitados Registrados para Hoy ({dayTotals.dayGuests.reduce((s, g) => s + g.count, 0)} raciones adicionales)</span>
+                </h4>
+                <button
+                  onClick={() => onOpenAddGuestModal(selectedDay)}
+                  className="text-xs font-extrabold text-indigo-700 hover:text-indigo-900 flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Añadir otro</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 {dayTotals.dayGuests.map((g) => {
-                  const menuInfo = GUEST_MENU_LABELS[g.menuType] || GUEST_MENU_LABELS.estandar;
+                  const menuMeta = GUEST_MENU_LABELS[g.menuType] || GUEST_MENU_LABELS.estandar;
+                  const serviceLabel = GUEST_SERVICE_LABELS[g.serviceMode] || 'Comedor';
+
                   return (
                     <div
                       key={g.id}
-                      className="bg-indigo-50/40 rounded-xl p-3.5 border border-indigo-200 flex items-start justify-between gap-2 text-xs"
+                      className="bg-white p-3 rounded-xl border border-indigo-200 shadow-2xs space-y-1.5 text-xs relative group"
                     >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-slate-900 capitalize">
-                            {g.mealType === 'desayuno' ? '☕ Desayuno' : g.mealType === 'comida' ? '🍲 Comida' : '🌙 Cena'}
-                          </span>
-                          <span className="px-2 py-0.2 rounded-full bg-indigo-600 text-white font-black text-[11px]">
-                            {g.count} {g.count === 1 ? 'persona' : 'personas'}
-                          </span>
-                        </div>
-                        
-                        <div className="text-slate-600">
-                          <span className="font-semibold">Modalidad:</span> {GUEST_SERVICE_LABELS[g.serviceMode]}
-                        </div>
-
-                        <div className="text-slate-600">
-                          <span className="font-semibold">Anfitrión:</span> <strong className="text-slate-800">{g.hostName}</strong>
-                        </div>
-
-                        <div>
-                          <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] border ${menuInfo.color}`}>
-                            {menuInfo.label}
-                          </span>
-                        </div>
-
-                        {g.notes && <div className="text-[11px] text-slate-500 italic pt-0.5">"{g.notes}"</div>}
+                      <div className="flex items-center justify-between">
+                        <span className="font-extrabold text-slate-900">
+                          {g.count}x {g.guestName || 'Invitado'}
+                        </span>
+                        <span className="px-2 py-0.2 rounded-full font-black text-[10px] bg-indigo-100 text-indigo-900 uppercase">
+                          {g.mealType}
+                        </span>
                       </div>
+
+                      <div className="text-[11px] text-slate-600 flex items-center justify-between">
+                        <span>Anfitrión: <strong>{g.hostName}</strong></span>
+                        <span className="font-medium text-slate-500">{serviceLabel}</span>
+                      </div>
+
+                      {g.dietNotes && (
+                        <div className="text-[10px] text-rose-700 bg-rose-50 p-1 rounded font-medium">
+                          ⚠️ {g.dietNotes}
+                        </div>
+                      )}
 
                       <button
                         onClick={() => onDeleteGuest(g.id)}
-                        className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50 transition"
+                        className="absolute top-2 right-2 p-1 text-slate-300 hover:text-rose-600 rounded transition opacity-0 group-hover:opacity-100"
                         title="Eliminar invitado"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -674,117 +800,8 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                   );
                 })}
               </div>
-            )}
-          </div>
-
-          {/* Tabla Nominal de Residentes (Iniciales) */}
-          <div className="bg-white rounded-2xl p-5 md:p-6 shadow-sm border border-slate-200 space-y-4">
-            <h3 className="text-base font-extrabold text-slate-900 flex items-center justify-between">
-              <span>📋 Lista Nominal de los 10 Residentes ({getDayFullFormatted(selectedDay)})</span>
-              <span className="text-xs font-normal text-slate-500">Orden oficial de residencia</span>
-            </h3>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-slate-100 text-slate-700 uppercase font-bold text-[11px]">
-                    <th className="p-3 rounded-l-xl">Residente</th>
-                    <th className="p-3 text-center">☕ Desayuno</th>
-                    <th className="p-3 text-center">🍲 Comida</th>
-                    <th className="p-3 text-center">🌙 Cena</th>
-                    <th className="p-3 rounded-r-xl">Observaciones de Cocina</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {residents.map((r) => {
-                    const pref = allPreferences[r.id]?.[selectedDay];
-
-                    return (
-                      <tr key={r.id} className="hover:bg-slate-50/80 transition">
-                        <td className="p-3 font-black text-slate-900 flex items-center gap-2">
-                          <span className="w-7 h-7 rounded-lg bg-slate-900 text-emerald-400 flex items-center justify-center text-xs font-black">
-                            {r.name}
-                          </span>
-                          <span className="text-sm font-bold text-slate-800">{r.name}</span>
-                        </td>
-
-                        {/* Desayuno */}
-                        <td className="p-3 text-center">
-                          {pref?.desayuno_en_casa ? (
-                            <span className="px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 font-bold inline-flex items-center gap-1">
-                              <Check className="w-3 h-3 text-amber-800" />
-                              <span>Comedor</span>
-                            </span>
-                          ) : (
-                            <span className="text-slate-300 font-semibold">✕ No</span>
-                          )}
-                        </td>
-
-                        {/* Comida */}
-                        <td className="p-3 text-center">
-                          {pref?.comida_tupper ? (
-                            <span className="px-2.5 py-1 rounded-lg bg-indigo-100 text-indigo-900 font-bold inline-flex items-center gap-1">
-                              <Package className="w-3 h-3 text-indigo-700" />
-                              <span>Tupper</span>
-                            </span>
-                          ) : pref?.comida_en_casa ? (
-                            pref.comida_segundo_turno ? (
-                              <span className="px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 font-bold inline-flex items-center gap-1">
-                                <Clock className="w-3 h-3 text-amber-700" />
-                                <span>2º Turno (14:45)</span>
-                              </span>
-                            ) : (
-                              <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-900 font-bold inline-flex items-center gap-1">
-                                <Check className="w-3 h-3 text-emerald-700" />
-                                <span>1er Turno</span>
-                              </span>
-                            )
-                          ) : (
-                            <span className="text-slate-300 font-semibold">✕ No</span>
-                          )}
-                        </td>
-
-                        {/* Cena */}
-                        <td className="p-3 text-center">
-                          {pref?.cena_tupper ? (
-                            <span className="px-2.5 py-1 rounded-lg bg-purple-100 text-purple-900 font-bold inline-flex items-center gap-1">
-                              <Package className="w-3 h-3 text-purple-700" />
-                              <span>Tupper</span>
-                            </span>
-                          ) : pref?.cena_en_casa ? (
-                            pref.cena_segundo_turno ? (
-                              <span className="px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 font-bold inline-flex items-center gap-1">
-                                <Clock className="w-3 h-3 text-amber-700" />
-                                <span>2º Turno (21:30)</span>
-                              </span>
-                            ) : (
-                              <span className="px-2.5 py-1 rounded-lg bg-indigo-100 text-indigo-900 font-bold inline-flex items-center gap-1">
-                                <Check className="w-3 h-3 text-indigo-700" />
-                                <span>1er Turno</span>
-                              </span>
-                            )
-                          ) : (
-                            <span className="text-slate-300 font-semibold">✕ No</span>
-                          )}
-                        </td>
-
-                        {/* Observaciones */}
-                        <td className="p-3 text-slate-600">
-                          {pref?.observaciones ? (
-                            <span className="bg-amber-50 text-amber-900 px-2.5 py-1 rounded-lg font-medium border border-amber-200 inline-block">
-                              {pref.observaciones}
-                            </span>
-                          ) : (
-                            <span className="text-slate-300">-</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
             </div>
-          </div>
+          )}
 
         </div>
       )}
@@ -794,13 +811,22 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
       {/* ===================================================================== */}
       {kitchenMode === 'week' && (
         <div className="bg-white rounded-2xl p-5 md:p-6 shadow-sm border border-slate-200 space-y-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-extrabold text-slate-900">
-              📊 Matriz Semanal de Comidas (Lunes a Domingo)
-            </h3>
-            <span className="text-xs font-semibold text-slate-500">
-              Residentes e Invitados
-            </span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 className="text-lg font-extrabold text-slate-900">
+                📊 Matriz Semanal de Comidas ({getWeekRangeLabel(weekOffset)})
+              </h3>
+              <p className="text-xs text-slate-500">
+                Residentes presentes e invitados computados automáticamente
+              </p>
+            </div>
+            <button
+              onClick={() => onOpenAbsenceModal()}
+              className="text-xs font-bold text-amber-800 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-xl border border-amber-300 inline-flex items-center gap-1 transition"
+            >
+              <Plane className="w-3.5 h-3.5" />
+              <span>Gestionar Ausencias ({absences.length})</span>
+            </button>
           </div>
 
           <div className="overflow-x-auto">
@@ -835,7 +861,12 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                       }`}
                     >
                       <td className="p-3 font-extrabold text-slate-900">
-                        <span>{getDayShortFormatted(d.id)}</span>
+                        <span>{getDayShortFormatted(d.id, weekOffset)}</span>
+                        {t.resAbsentCount > 0 && (
+                          <span className="ml-1.5 text-[10px] px-1.5 py-0.2 rounded bg-rose-100 text-rose-800">
+                            -{t.resAbsentCount} aus
+                          </span>
+                        )}
                         {t.dayGuests.length > 0 && (
                           <span className="ml-1.5 text-[10px] px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-800">
                             +{t.dayGuests.reduce((s, g) => s + g.count, 0)} inv
@@ -865,63 +896,97 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
       )}
 
       {/* ===================================================================== */}
-      {/* VISTA 3: MODO PIZARRA / PANTALLA COMPLETA                            */}
+      {/* VISTA 3: PIZARRA DE COCINA (ALTO CONTRASTE)                           */}
       {/* ===================================================================== */}
       {kitchenMode === 'board' && (
         <div className="bg-slate-950 text-white rounded-3xl p-6 md:p-8 shadow-2xl border border-slate-800 space-y-6">
           <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="text-amber-400 text-xs font-black uppercase tracking-widest">
-                  Modo Pizarra de Cocina
-                </span>
-                <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 text-xs font-black px-2.5 py-0.5 rounded-full">
-                  {formatMealsSummary(dayTotals.totalDesayuno, dayTotals.totalComidaRaciones, dayTotals.totalCenaRaciones)}
-                </span>
-              </div>
-              <h2 className="text-3xl font-black text-white capitalize">
-                {getDayFullFormatted(selectedDay)}
-              </h2>
+            <div>
+              <span className="text-amber-400 text-xs font-bold uppercase tracking-wider">
+                Pizarra Digital de Cocina • {getWeekRangeLabel(weekOffset)}
+              </span>
+              <h3 className="text-3xl font-black text-white mt-1 capitalize">
+                {getDayFullFormatted(selectedDay, weekOffset)}
+              </h3>
             </div>
-            <button
-              onClick={() => setKitchenMode('day')}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-bold text-slate-200 transition"
-            >
-              Salir de Pizarra
-            </button>
+
+            <div className="flex items-center gap-2">
+              <span className="px-4 py-2 bg-amber-500 text-slate-950 rounded-2xl text-base font-black">
+                {formatMealsSummary(dayTotals.totalDesayuno, dayTotals.totalComidaRaciones, dayTotals.totalCenaRaciones)}
+              </span>
+              <button
+                onClick={() => setKitchenMode('day')}
+                className="p-2 text-slate-400 hover:text-white rounded-xl bg-slate-900 transition"
+              >
+                <Minimize2 className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Desayuno */}
-            <div className="bg-slate-900 p-6 rounded-2xl border border-amber-500/30 space-y-3">
-              <span className="text-amber-400 text-sm font-bold uppercase block">☕ Desayunos</span>
-              <div className="text-5xl font-black text-white">{dayTotals.totalDesayuno}</div>
-              <p className="text-xs text-slate-400">
-                {dayTotals.resDesayuno} residentes {dayTotals.guestDesayuno > 0 ? `+ ${dayTotals.guestDesayuno} invitados` : ''}
-              </p>
-            </div>
-
-            {/* Comida */}
-            <div className="bg-slate-900 p-6 rounded-2xl border border-emerald-500/30 space-y-3">
-              <span className="text-emerald-400 text-sm font-bold uppercase block">🍲 Comidas Total</span>
-              <div className="text-5xl font-black text-white">{dayTotals.totalComidaRaciones}</div>
-              <div className="text-xs text-slate-300 space-y-1">
-                <div>1er Turno (13:30): <strong className="text-emerald-300 font-black">{dayTotals.totalComida1}</strong></div>
-                <div>2º Turno (14:45): <strong className="text-amber-300 font-black">{dayTotals.totalComida2}</strong></div>
-                <div>Tuppers: <strong className="text-indigo-300 font-black">{dayTotals.totalComidaTupper}</strong></div>
+            
+            {/* Comida Hoy */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span className="font-extrabold text-emerald-400 text-base">🍲 COMIDA HOY</span>
+                <span className="text-2xl font-black text-white">{dayTotals.totalComidaRaciones}</span>
+              </div>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between text-slate-300">
+                  <span>1er Turno (13:30):</span>
+                  <strong className="text-white text-base">{dayTotals.totalComida1}</strong>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span>2º Turno (14:45):</span>
+                  <strong className="text-amber-400 text-base">{dayTotals.totalComida2}</strong>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span>Tuppers:</span>
+                  <strong className="text-indigo-400 text-base">{dayTotals.totalComidaTupper}</strong>
+                </div>
               </div>
             </div>
 
-            {/* Cena */}
-            <div className="bg-slate-900 p-6 rounded-2xl border border-indigo-500/30 space-y-3">
-              <span className="text-indigo-400 text-sm font-bold uppercase block">🌙 Cenas Total</span>
-              <div className="text-5xl font-black text-white">{dayTotals.totalCenaRaciones}</div>
-              <div className="text-xs text-slate-300 space-y-1">
-                <div>1er Turno (20:30): <strong className="text-indigo-300 font-black">{dayTotals.totalCena1}</strong></div>
-                <div>2º Turno (21:30): <strong className="text-amber-300 font-black">{dayTotals.totalCena2}</strong></div>
-                <div>Tuppers: <strong className="text-purple-300 font-black">{dayTotals.totalCenaTupper}</strong></div>
+            {/* Cena Hoy */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span className="font-extrabold text-indigo-400 text-base">🌙 CENA HOY</span>
+                <span className="text-2xl font-black text-white">{dayTotals.totalCenaRaciones}</span>
+              </div>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between text-slate-300">
+                  <span>1er Turno (20:30):</span>
+                  <strong className="text-white text-base">{dayTotals.totalCena1}</strong>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span>2º Turno (21:30):</span>
+                  <strong className="text-amber-400 text-base">{dayTotals.totalCena2}</strong>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span>Tuppers:</span>
+                  <strong className="text-purple-400 text-base">{dayTotals.totalCenaTupper}</strong>
+                </div>
               </div>
             </div>
+
+            {/* Desayuno Mañana */}
+            <div className="bg-slate-900/90 border border-amber-500/40 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span className="font-extrabold text-amber-400 text-base">☕ DESAYUNO MAÑANA</span>
+                <span className="text-2xl font-black text-amber-300">{nextDayTotals.totalDesayuno}</span>
+              </div>
+              <div className="space-y-1.5 text-xs text-slate-300">
+                <span className="block text-slate-400 font-bold">Comedor confirmados:</span>
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {residentsBreakfastNextDay.map((r) => (
+                    <span key={r.id} className="px-2 py-0.5 bg-slate-800 text-amber-300 rounded font-bold">
+                      {r.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
       )}

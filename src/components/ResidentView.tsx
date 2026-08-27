@@ -16,11 +16,22 @@ import {
   Calendar,
   Users,
   Plus,
-  Trash2
+  Trash2,
+  Plane,
+  AlertCircle
 } from 'lucide-react';
 import { DAYS, DEFAULT_MEAL_SELECTION, GUEST_MENU_LABELS, GUEST_SERVICE_LABELS } from '../constants';
-import { DayOfWeek, GuestEntry, GuestMealType, MealSelection, Resident, ResidentWeeklySchedule } from '../types';
-import { getDayShortFormatted, getDayFullFormatted, getDayDateOnly } from '../utils/dateUtils';
+import { AbsenceRecord, DayOfWeek, GuestEntry, GuestMealType, MealSelection, Resident, ResidentWeeklySchedule } from '../types';
+import { 
+  getDayShortFormatted, 
+  getDayFullFormatted, 
+  getDayDateOnly, 
+  isDayInAbsence,
+  formatDateDDMMYY,
+  parseISODate,
+  getWeekRangeLabel
+} from '../utils/dateUtils';
+import { WeekNavigator } from './WeekNavigator';
 
 interface ResidentViewProps {
   residents: Resident[];
@@ -28,12 +39,19 @@ interface ResidentViewProps {
   onSelectResident: (id: number) => void;
   selectedDay: DayOfWeek;
   onSelectDay: (day: DayOfWeek) => void;
+  weekOffset: number;
+  onSetWeekOffset: (offset: number) => void;
+  onPreviousWeek: () => void;
+  onNextWeek: () => void;
+  onCurrentWeek: () => void;
   weeklySchedule: ResidentWeeklySchedule;
   onUpdateMealSelection: (day: DayOfWeek, selection: MealSelection) => void;
   onApplyPreset: (preset: 'all-home' | 'uni-tuppers' | 'weekend-out' | 'clear') => void;
   guests: GuestEntry[];
   onOpenAddGuestModal: (day: DayOfWeek, mealType?: GuestMealType, hostName?: string) => void;
   onDeleteGuest: (id: string) => void;
+  absences: AbsenceRecord[];
+  onOpenAbsenceModal: (initialResidentId?: number) => void;
   isSaving: boolean;
   syncSource: 'supabase' | 'local';
   confirmedResidentsCount?: number;
@@ -45,17 +63,28 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
   onSelectResident,
   selectedDay,
   onSelectDay,
+  weekOffset,
+  onSetWeekOffset,
+  onPreviousWeek,
+  onNextWeek,
+  onCurrentWeek,
   weeklySchedule,
   onUpdateMealSelection,
   onApplyPreset,
   guests,
   onOpenAddGuestModal,
   onDeleteGuest,
+  absences,
+  onOpenAbsenceModal,
   isSaving,
   syncSource,
   confirmedResidentsCount,
 }) => {
   const currentResident = residents.find((r) => r.id === selectedResidentId) || residents[0];
+  
+  // Check if current resident is absent on the selected day
+  const residentAbsenceToday = isDayInAbsence(selectedDay, weekOffset, absences, currentResident.id);
+
   const currentDayData: MealSelection = weeklySchedule[selectedDay] || {
     desayuno_en_casa: true,
     comida_en_casa: true,
@@ -175,10 +204,6 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
   };
 
   // Calculate week stats for this resident
-  const totalMealsAtHome = (Object.values(weeklySchedule) as MealSelection[]).reduce((acc: number, curr: MealSelection) => {
-    return acc + (curr.comida_en_casa ? 1 : 0) + (curr.cena_en_casa ? 1 : 0) + (curr.desayuno_en_casa ? 1 : 0);
-  }, 0);
-
   const totalTuppers = (Object.values(weeklySchedule) as MealSelection[]).reduce((acc: number, curr: MealSelection) => {
     return acc + (curr.comida_tupper ? 1 : 0) + (curr.cena_tupper ? 1 : 0);
   }, 0);
@@ -200,26 +225,43 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
               <label htmlFor="resident-select-input" className="text-xs font-bold uppercase tracking-wider text-slate-500">
                 Selecciona tu Residente (Iniciales):
               </label>
-              <span className="text-xs text-slate-500 font-semibold bg-slate-100 px-2 py-0.5 rounded-full">
-                10 Residentes
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => onOpenAbsenceModal(currentResident.id)}
+                  className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                  title="Registrar viaje o ausencia para anular automáticamente servicios"
+                >
+                  <Plane className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Viajes / Ausencias</span>
+                </button>
+                <span className="text-xs text-slate-500 font-semibold bg-slate-100 px-2 py-0.5 rounded-full">
+                  10 Residentes
+                </span>
+              </div>
             </div>
 
             {/* Quick Initial Chips */}
             <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5 pt-1">
               {residents.map((res) => {
                 const isSelected = res.id === selectedResidentId;
+                const isAbsentToday = isDayInAbsence(selectedDay, weekOffset, absences, res.id);
+
                 return (
                   <button
                     key={res.id}
                     onClick={() => onSelectResident(res.id)}
-                    className={`py-2.5 rounded-xl font-black text-sm transition-all border text-center ${
+                    className={`py-2.5 rounded-xl font-black text-sm transition-all border text-center relative ${
                       isSelected
                         ? 'bg-slate-900 text-emerald-400 border-slate-900 shadow-md ring-2 ring-emerald-500/50 scale-105'
+                        : isAbsentToday
+                        ? 'bg-rose-50 text-rose-800 border-rose-200'
                         : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-200'
                     }`}
                   >
                     {res.name}
+                    {isAbsentToday && (
+                      <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border border-white" title="Ausente por viaje"></span>
+                    )}
                   </button>
                 );
               })}
@@ -291,12 +333,50 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
         </div>
       </div>
 
-      {/* Selector de Día (Lunes a Domingo) */}
+      {/* Week Navigator */}
+      <WeekNavigator
+        weekOffset={weekOffset}
+        onSetWeekOffset={onSetWeekOffset}
+        onPreviousWeek={onPreviousWeek}
+        onNextWeek={onNextWeek}
+        onCurrentWeek={onCurrentWeek}
+      />
+
+      {/* Banner de Ausencia activa para el residente seleccionado */}
+      {residentAbsenceToday && (
+        <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center font-bold shrink-0">
+              <Plane className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-extrabold text-rose-950 text-sm">
+                ✈️ Residente {currentResident.name} tiene ausencia registrada
+              </div>
+              <div className="text-rose-800">
+                Periodo: Del <strong>{formatDateDDMMYY(parseISODate(residentAbsenceToday.startDate))}</strong> al <strong>{formatDateDDMMYY(parseISODate(residentAbsenceToday.endDate))}</strong> ({residentAbsenceToday.reason || 'Viaje / Fuera de residencia'})
+              </div>
+              <p className="text-[11px] text-rose-700 mt-0.5">
+                Sus comidas han sido anuladas automáticamente en los cómputos de cocina para este periodo.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => onOpenAbsenceModal(currentResident.id)}
+            className="px-3.5 py-1.5 bg-white hover:bg-rose-100 text-rose-900 border border-rose-300 font-extrabold rounded-xl shrink-0 transition"
+          >
+            Modificar / Cancelar Ausencia
+          </button>
+        </div>
+      )}
+
+      {/* Selector de Día (Lunes a Domingo con fecha dinámica) */}
       <div className="space-y-2">
         <div className="flex items-center justify-between px-1">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
             <Calendar className="w-3.5 h-3.5 text-slate-400" />
-            Día de la semana:
+            Día de la semana ({getWeekRangeLabel(weekOffset)}):
           </span>
           <span className="text-xs text-slate-400">
             {isSaving ? 'Guardando cambios...' : 'Guardado automáticamente'}
@@ -307,7 +387,8 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
           {DAYS.map((day) => {
             const isSelected = day.id === selectedDay;
             const dayPref = weeklySchedule[day.id];
-            const formattedDate = getDayDateOnly(day.id);
+            const formattedDate = getDayDateOnly(day.id, weekOffset);
+            const isAbsent = isDayInAbsence(day.id, weekOffset, absences, currentResident.id);
 
             return (
               <button
@@ -316,29 +397,37 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
                 className={`py-2.5 px-2 rounded-xl text-center transition-all relative border flex flex-col items-center justify-center gap-0.5 ${
                   isSelected
                     ? 'bg-slate-900 text-white border-slate-900 shadow-md ring-2 ring-emerald-500/50'
+                    : isAbsent
+                    ? 'bg-rose-50/70 text-rose-800 border-rose-200'
                     : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-200'
                 }`}
               >
                 <div className="flex items-center gap-1">
                   <span className="text-xs font-bold block">{day.short}</span>
-                  <span className={`text-[11px] font-semibold ${isSelected ? 'text-emerald-300' : 'text-slate-500'}`}>
+                  <span className={`text-[11px] font-semibold ${isSelected ? 'text-emerald-300' : isAbsent ? 'text-rose-700' : 'text-slate-500'}`}>
                     {formattedDate}
                   </span>
                 </div>
-                <span className={`text-xs font-extrabold block ${isSelected ? 'text-emerald-400' : 'text-slate-900'}`}>
+                <span className={`text-xs font-extrabold block ${isSelected ? 'text-emerald-400' : isAbsent ? 'text-rose-900' : 'text-slate-900'}`}>
                   {day.label}
                 </span>
 
                 {/* Status indicator dots */}
                 <div className="flex items-center gap-1 mt-0.5">
-                  {dayPref?.desayuno_en_casa && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" title="Desayuno"></span>
-                  )}
-                  {(dayPref?.comida_en_casa || dayPref?.comida_tupper) && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Comida"></span>
-                  )}
-                  {(dayPref?.cena_en_casa || dayPref?.cena_tupper) && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" title="Cena"></span>
+                  {isAbsent ? (
+                    <span className="text-[9px] font-black text-rose-600">VIAJE</span>
+                  ) : (
+                    <>
+                      {dayPref?.desayuno_en_casa && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400" title="Desayuno"></span>
+                      )}
+                      {(dayPref?.comida_en_casa || dayPref?.comida_tupper) && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Comida"></span>
+                      )}
+                      {(dayPref?.cena_en_casa || dayPref?.cena_tupper) && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" title="Cena"></span>
+                      )}
+                    </>
                   )}
                 </div>
               </button>
@@ -358,7 +447,7 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
             </div>
             <div>
               <h2 className="text-xl font-extrabold text-slate-900 capitalize">
-                {getDayFullFormatted(selectedDay)}
+                {getDayFullFormatted(selectedDay, weekOffset)}
               </h2>
               <p className="text-xs text-slate-500">
                 Selección para el residente <strong className="text-slate-800">{currentResident.name}</strong>
@@ -691,7 +780,7 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
                       <div className="text-[11px] text-slate-500 mt-0.5">
                         {GUEST_SERVICE_LABELS[g.serviceMode]} • <span className="font-semibold text-slate-700">{menu.label}</span>
                       </div>
-                      {g.notes && <div className="text-[10px] text-slate-400 italic">"{g.notes}"</div>}
+                      {g.dietNotes && <div className="text-[10px] text-rose-600 font-medium">⚠️ {g.dietNotes}</div>}
                     </div>
 
                     <button
@@ -731,7 +820,7 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
       {/* Resumen Semanal del Residente */}
       <div className="bg-white rounded-2xl p-5 md:p-6 shadow-sm border border-slate-200">
         <h3 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
-          <span>📅 Plan Semanal de {currentResident.name}</span>
+          <span>📅 Plan Semanal de {currentResident.name} ({getWeekRangeLabel(weekOffset)})</span>
         </h3>
 
         <div className="overflow-x-auto">
@@ -749,6 +838,7 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
               {DAYS.map((d) => {
                 const s = weeklySchedule[d.id] || DEFAULT_MEAL_SELECTION;
                 const isCur = d.id === selectedDay;
+                const isAbsent = isDayInAbsence(d.id, weekOffset, absences, currentResident.id);
 
                 return (
                   <tr
@@ -760,45 +850,63 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
                   >
                     <td className="p-2.5 font-bold text-slate-800 flex items-center gap-1.5">
                       {isCur && <ChevronRight className="w-3.5 h-3.5 text-emerald-600" />}
-                      <span>{getDayShortFormatted(d.id)}</span>
+                      <span>{getDayShortFormatted(d.id, weekOffset)}</span>
                     </td>
                     <td className="p-2.5 text-center">
-                      {s.desayuno_en_casa ? (
+                      {isAbsent ? (
+                        <span className="text-rose-600 font-bold">Viaje</span>
+                      ) : s.desayuno_en_casa ? (
                         <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 font-bold">Comedor</span>
                       ) : (
                         <span className="text-slate-300">No</span>
                       )}
                     </td>
                     <td className="p-2.5 text-center space-x-1">
-                      {s.comida_en_casa && (
-                        <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold">Comedor</span>
-                      )}
-                      {s.comida_tupper && (
-                        <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 font-bold">Tupper</span>
-                      )}
-                      {s.comida_segundo_turno && (
-                        <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">2º Turno</span>
-                      )}
-                      {!s.comida_en_casa && !s.comida_tupper && (
-                        <span className="text-slate-300">No</span>
+                      {isAbsent ? (
+                        <span className="text-rose-600 font-bold">Viaje</span>
+                      ) : (
+                        <>
+                          {s.comida_en_casa && (
+                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold">Comedor</span>
+                          )}
+                          {s.comida_tupper && (
+                            <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 font-bold">Tupper</span>
+                          )}
+                          {s.comida_segundo_turno && (
+                            <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">2º Turno</span>
+                          )}
+                          {!s.comida_en_casa && !s.comida_tupper && (
+                            <span className="text-slate-300">No</span>
+                          )}
+                        </>
                       )}
                     </td>
                     <td className="p-2.5 text-center space-x-1">
-                      {s.cena_en_casa && (
-                        <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 font-bold">Comedor</span>
-                      )}
-                      {s.cena_tupper && (
-                        <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-800 font-bold">Tupper</span>
-                      )}
-                      {s.cena_segundo_turno && (
-                        <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">2º Turno</span>
-                      )}
-                      {!s.cena_en_casa && !s.cena_tupper && (
-                        <span className="text-slate-300">No</span>
+                      {isAbsent ? (
+                        <span className="text-rose-600 font-bold">Viaje</span>
+                      ) : (
+                        <>
+                          {s.cena_en_casa && (
+                            <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 font-bold">Comedor</span>
+                          )}
+                          {s.cena_tupper && (
+                            <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-800 font-bold">Tupper</span>
+                          )}
+                          {s.cena_segundo_turno && (
+                            <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">2º Turno</span>
+                          )}
+                          {!s.cena_en_casa && !s.cena_tupper && (
+                            <span className="text-slate-300">No</span>
+                          )}
+                        </>
                       )}
                     </td>
                     <td className="p-2.5 text-slate-500 truncate max-w-[150px]">
-                      {s.observaciones || '-'}
+                      {isAbsent ? (
+                        <span className="text-rose-700 font-bold">Ausente: {isAbsent.reason || 'Viaje'}</span>
+                      ) : (
+                        s.observaciones || '-'
+                      )}
                     </td>
                   </tr>
                 );

@@ -96,6 +96,16 @@ export type AdminNotePriority = 'normal' | 'urgente';
 
 export type AdminNoteStatus = 'pendiente' | 'transmitido' | 'resuelto';
 
+export interface AbsenceRecord {
+  id: string;
+  residentId: number;
+  residentName: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string;   // YYYY-MM-DD
+  reason?: string;
+  createdAt: string;
+}
+
 export interface AdminNote {
   id: string;
   title: string;              // Resumen / Título de la petición
@@ -104,7 +114,7 @@ export interface AdminNote {
   author: string;              // Iniciales del residente o "Director" / "Personal"
   priority: AdminNotePriority; // Normal / Urgente
   status: AdminNoteStatus;     // Pendiente, Transmitido por teléfono, Resuelto
-  targetDate?: string;         // Fecha relevante o día (ej. YYYY-MM-DD)
+  targetDate: string;          // Fecha concreta relevante (YYYY-MM-DD)
   createdAt: string;           // Timestamp ISO
   updatedAt?: string;
   calledInAt?: string;         // Cuándo se transmitió por teléfono

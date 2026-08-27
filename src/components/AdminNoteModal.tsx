@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, ClipboardList, AlertTriangle, Clock, Home, Utensils, Wrench, FileText, CheckCircle2, User } from 'lucide-react';
+import { X, ClipboardList, AlertTriangle, Clock, Home, Utensils, Wrench, FileText, CheckCircle2, User, Calendar } from 'lucide-react';
 import { AdminNote, AdminNoteCategory, AdminNotePriority, AdminNoteStatus, Resident } from '../types';
+import { formatDateToISO, formatDateDDMMYY, parseISODate } from '../utils/dateUtils';
 
 interface AdminNoteModalProps {
   isOpen: boolean;
@@ -8,6 +9,7 @@ interface AdminNoteModalProps {
   noteToEdit?: AdminNote | null;
   residents: Resident[];
   initialAuthor?: string;
+  initialDate?: string; // YYYY-MM-DD
   onSaveNote: (note: AdminNote) => void;
 }
 
@@ -25,15 +27,18 @@ export const AdminNoteModal: React.FC<AdminNoteModalProps> = ({
   noteToEdit,
   residents,
   initialAuthor,
+  initialDate,
   onSaveNote,
 }) => {
+  const defaultDate = initialDate || formatDateToISO(new Date());
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<AdminNoteCategory>('organizacion');
   const [author, setAuthor] = useState('ILC');
   const [priority, setPriority] = useState<AdminNotePriority>('normal');
   const [status, setStatus] = useState<AdminNoteStatus>('pendiente');
-  const [targetDate, setTargetDate] = useState('Hoy / Próxima llamada');
+  const [targetDate, setTargetDate] = useState(defaultDate);
   const [responseNotes, setResponseNotes] = useState('');
 
   useEffect(() => {
@@ -44,7 +49,7 @@ export const AdminNoteModal: React.FC<AdminNoteModalProps> = ({
       setAuthor(noteToEdit.author);
       setPriority(noteToEdit.priority);
       setStatus(noteToEdit.status);
-      setTargetDate(noteToEdit.targetDate || '');
+      setTargetDate(noteToEdit.targetDate || defaultDate);
       setResponseNotes(noteToEdit.responseNotes || '');
     } else {
       setTitle('');
@@ -53,10 +58,10 @@ export const AdminNoteModal: React.FC<AdminNoteModalProps> = ({
       setAuthor(initialAuthor || residents[0]?.name || 'ILC');
       setPriority('normal');
       setStatus('pendiente');
-      setTargetDate('Hoy / Próxima llamada');
+      setTargetDate(initialDate || formatDateToISO(new Date()));
       setResponseNotes('');
     }
-  }, [noteToEdit, initialAuthor, residents, isOpen]);
+  }, [noteToEdit, initialAuthor, initialDate, defaultDate, residents, isOpen]);
 
   if (!isOpen) return null;
 
@@ -72,7 +77,7 @@ export const AdminNoteModal: React.FC<AdminNoteModalProps> = ({
       author: author.trim() || 'Residente',
       priority,
       status,
-      targetDate: targetDate.trim() || undefined,
+      targetDate: targetDate || formatDateToISO(new Date()),
       createdAt: noteToEdit ? noteToEdit.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       calledInAt: status === 'transmitido' ? (noteToEdit?.calledInAt || new Date().toISOString()) : undefined,
@@ -82,6 +87,8 @@ export const AdminNoteModal: React.FC<AdminNoteModalProps> = ({
     onSaveNote(noteData);
     onClose();
   };
+
+  const formattedTargetDate = targetDate ? formatDateDDMMYY(parseISODate(targetDate)) : '';
 
   return (
     <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-50 flex items-center justify-center p-4">
@@ -95,10 +102,10 @@ export const AdminNoteModal: React.FC<AdminNoteModalProps> = ({
             </div>
             <div>
               <h3 className="text-lg font-black text-slate-900">
-                {noteToEdit ? 'Editar Petición para Administración' : 'Nueva Petición para Administración'}
+                {noteToEdit ? 'Editar Petición de Agenda' : 'Nueva Nota en Agenda de Administración'}
               </h3>
               <p className="text-xs text-slate-500">
-                Para incluir en la llamada telefónica matutina del director
+                Vinculada a una fecha concreta para la llamada telefónica del director
               </p>
             </div>
           </div>
@@ -113,6 +120,26 @@ export const AdminNoteModal: React.FC<AdminNoteModalProps> = ({
         {/* Form Body */}
         <form id="admin-note-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto space-y-4 pr-1">
           
+          {/* Fecha concreta de la nota */}
+          <div className="bg-blue-50/70 border border-blue-200/80 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <label className="block text-xs font-black text-blue-900 uppercase tracking-wider flex items-center gap-1.5 mb-0.5">
+                <Calendar className="w-3.5 h-3.5 text-blue-700" />
+                <span>Fecha Específica de la Nota (Agenda)</span>
+              </label>
+              <p className="text-[11px] text-blue-800/80">
+                Esta nota solo se mostrará en el día correspondiente ({formattedTargetDate})
+              </p>
+            </div>
+            <input
+              type="date"
+              required
+              value={targetDate}
+              onChange={(e) => setTargetDate(e.target.value)}
+              className="bg-white border border-blue-300 rounded-xl px-3 py-1.5 text-xs font-extrabold text-blue-950 focus:ring-2 focus:ring-blue-500 focus:outline-none shrink-0"
+            />
+          </div>
+
           {/* Título de la petición */}
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
@@ -219,83 +246,99 @@ export const AdminNoteModal: React.FC<AdminNoteModalProps> = ({
             </div>
           </div>
 
-          {/* Fecha u Ocasión & Estado */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Cuándo aplica / Para qué día
-              </label>
-              <input
-                type="text"
-                value={targetDate}
-                onChange={(e) => setTargetDate(e.target.value)}
-                placeholder="Ej: Hoy, Jueves, Fin de semana..."
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Estado actual
-              </label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as AdminNoteStatus)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          {/* Estado actual */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+              Estado de la petición
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setStatus('pendiente')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                  status === 'pendiente'
+                    ? 'bg-amber-100 border-amber-300 text-amber-900 ring-2 ring-amber-500'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
               >
-                <option value="pendiente">🟡 Pendiente para la llamada</option>
-                <option value="transmitido">🔵 Transmitido / Pedido por teléfono</option>
-                <option value="resuelto">🟢 Resuelto / Confirmado</option>
-              </select>
+                <Clock className="w-3.5 h-3.5 text-amber-700" />
+                <span>Pendiente</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setStatus('transmitido')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                  status === 'transmitido'
+                    ? 'bg-blue-100 border-blue-300 text-blue-900 ring-2 ring-blue-500'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-blue-700" />
+                <span>Transmitido</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setStatus('resuelto')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                  status === 'resuelto'
+                    ? 'bg-emerald-100 border-emerald-300 text-emerald-900 ring-2 ring-emerald-500'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Resuelto</span>
+              </button>
             </div>
           </div>
 
-          {/* Descripción detallada */}
+          {/* Descripción / Explicación */}
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-              Detalles / Explicación adicional (opcional)
+              Detalles / Explicación completa (Opcional)
             </label>
             <textarea
-              rows={2}
+              rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Explica cualquier detalle que el director deba saber o transmitir a la administración..."
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none"
+              placeholder="Añade detalles útiles para que el director pueda explicarlo con precisión en la llamada..."
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
             />
           </div>
 
-          {/* Respuesta o notas de resolución (si aplica) */}
-          {(status === 'transmitido' || status === 'resuelto' || noteToEdit) && (
+          {/* Respuesta o resolución (si está resuelto o transmitido) */}
+          {(status === 'resuelto' || status === 'transmitido' || noteToEdit?.responseNotes) && (
             <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Respuesta de Administración o Notas de Seguimiento (opcional)</span>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                Respuesta / Resultado de la llamada (Opcional)
               </label>
-              <input
-                type="text"
+              <textarea
+                rows={2}
                 value={responseNotes}
                 onChange={(e) => setResponseNotes(e.target.value)}
-                placeholder="Ej: Aprobado para el viernes a las 14:00, el fontanero vendrá el martes a las 10h..."
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                placeholder="Ej: La administración confirma que vendrá el técnico el martes a las 10:00..."
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
             </div>
           )}
 
         </form>
 
-        {/* Actions */}
-        <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-3">
+        {/* Footer */}
+        <div className="flex items-center justify-between border-t border-slate-100 pt-4">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition"
+            className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition"
           >
             Cancelar
           </button>
+          
           <button
             type="submit"
             form="admin-note-form"
-            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition flex items-center gap-1.5"
+            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black shadow-md transition flex items-center gap-1.5"
           >
             <CheckCircle2 className="w-4 h-4" />
             <span>{noteToEdit ? 'Guardar Cambios' : 'Añadir a la Agenda'}</span>

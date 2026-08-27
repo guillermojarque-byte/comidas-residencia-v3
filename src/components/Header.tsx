@@ -15,6 +15,7 @@ interface HeaderProps {
   confirmedResidentsCount: number;
   totalResidentsCount: number;
   selectedDay: DayOfWeek;
+  weekOffset?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -29,8 +30,9 @@ export const Header: React.FC<HeaderProps> = ({
   confirmedResidentsCount,
   totalResidentsCount,
   selectedDay,
+  weekOffset = 0,
 }) => {
-  const formattedDay = getDayFullFormatted(selectedDay);
+  const formattedDay = getDayFullFormatted(selectedDay, weekOffset);
 
   return (
     <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-md">
@@ -152,18 +154,18 @@ export const Header: React.FC<HeaderProps> = ({
           ) : (
             <button
               onClick={onOpenSettings}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition"
-              title="Modo Local"
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-950/90 text-amber-300 border border-amber-800 hover:bg-amber-900/80 transition"
+              title="Guardando en almacenamiento local del navegador"
             >
-              <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+              <span className="w-2 h-2 rounded-full bg-amber-400"></span>
               <span>Modo Local</span>
             </button>
           )}
 
           <button
             onClick={onOpenSettings}
-            className="p-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700 transition"
-            title="Ajustes de conexión"
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+            title="Configurar Supabase / Ajustes"
           >
             <Settings className="w-4 h-4" />
           </button>

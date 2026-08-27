@@ -1,12 +1,14 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { DAYS, INITIAL_RESIDENTS, createDefaultWeekSchedule } from '../constants';
-import { AdminNote, DayOfWeek, GuestEntry, MealSelection, Resident, ResidentWeeklySchedule, SupabaseConfig } from '../types';
+import { AbsenceRecord, AdminNote, DayOfWeek, GuestEntry, MealSelection, Resident, ResidentWeeklySchedule, SupabaseConfig } from '../types';
+import { formatDateToISO } from '../utils/dateUtils';
 
 const STORAGE_KEY_PREFERENCES = 'residencia_meal_preferences_v2';
 const STORAGE_KEY_CONFIG = 'residencia_supabase_config_v2';
 const STORAGE_KEY_RESIDENTS = 'residencia_residents_initials_v2';
 const STORAGE_KEY_GUESTS = 'residencia_guests_v2';
 const STORAGE_KEY_ADMIN_AGENDA = 'residencia_admin_agenda_v2';
+const STORAGE_KEY_ABSENCES = 'residencia_absences_v2';
 
 let supabaseInstance: SupabaseClient | null = null;
 let currentConfig: SupabaseConfig = {
@@ -426,7 +428,7 @@ export async function testSupabaseConnection(
 }
 
 // ----------------------------------------------------
-// AGENDA ADMINISTRACIÓN (PETICIONES Y AVISOS)
+// AGENDA ADMINISTRACIÓN (PETICIONES Y AVISOS POR FECHA CONCRETA)
 // ----------------------------------------------------
 const DEFAULT_INITIAL_ADMIN_NOTES: AdminNote[] = [
   {
@@ -437,7 +439,7 @@ const DEFAULT_INITIAL_ADMIN_NOTES: AdminNote[] = [
     author: 'ILC',
     priority: 'urgente',
     status: 'pendiente',
-    targetDate: 'Jueves',
+    targetDate: formatDateToISO(new Date()),
     createdAt: new Date(Date.now() - 3600000 * 4).toISOString(),
   },
   {
@@ -448,19 +450,8 @@ const DEFAULT_INITIAL_ADMIN_NOTES: AdminNote[] = [
     author: 'JAM',
     priority: 'normal',
     status: 'pendiente',
-    targetDate: 'Hoy',
+    targetDate: formatDateToISO(new Date()),
     createdAt: new Date(Date.now() - 3600000 * 12).toISOString(),
-  },
-  {
-    id: 'note_init_3',
-    title: 'Reposición de bolsas de tupper y etiquetas',
-    description: 'En el armario de cocina quedan pocas bolsas herméticas para las comidas para llevar de la universidad.',
-    category: 'cocina',
-    author: 'ASR',
-    priority: 'normal',
-    status: 'pendiente',
-    targetDate: 'Viernes',
-    createdAt: new Date(Date.now() - 3600000 * 20).toISOString(),
   },
 ];
 
@@ -474,7 +465,7 @@ export function getLocalAdminNotes(): AdminNote[] {
   } catch {
     // fallback
   }
-  // Store default sample notes
+  // Store default sample notes with today's date
   localStorage.setItem(STORAGE_KEY_ADMIN_AGENDA, JSON.stringify(DEFAULT_INITIAL_ADMIN_NOTES));
   return DEFAULT_INITIAL_ADMIN_NOTES;
 }
@@ -503,7 +494,7 @@ export async function loadAllAdminNotes(): Promise<{
           author: String(row.author || 'Residente'),
           priority: (row.priority as AdminNote['priority']) || 'normal',
           status: (row.status as AdminNote['status']) || 'pendiente',
-          targetDate: row.target_date ? String(row.target_date) : undefined,
+          targetDate: row.target_date ? String(row.target_date) : formatDateToISO(new Date()),
           createdAt: String(row.created_at || new Date().toISOString()),
           updatedAt: row.updated_at ? String(row.updated_at) : undefined,
           calledInAt: row.called_in_at ? String(row.called_in_at) : undefined,
@@ -540,7 +531,7 @@ export async function saveAdminNote(note: AdminNote): Promise<{ success: boolean
         author: note.author,
         priority: note.priority,
         status: note.status,
-        target_date: note.targetDate || null,
+        target_date: note.targetDate || formatDateToISO(new Date()),
         created_at: note.createdAt,
         updated_at: new Date().toISOString(),
         called_in_at: note.calledInAt || null,
@@ -563,6 +554,104 @@ export async function deleteAdminNote(noteId: string): Promise<{ success: boolea
   if (supabaseInstance && currentConfig.isConfigured) {
     try {
       await supabaseInstance.from('admin_agenda_notes').delete().eq('id', noteId);
+      return { success: true, source: 'supabase' };
+    } catch {
+      return { success: true, source: 'local' };
+    }
+  }
+
+  return { success: true, source: 'local' };
+}
+
+// ----------------------------------------------------
+// GESTIÓN DE AUSENCIAS / VIAJES POR RANGO DE FECHAS
+// ----------------------------------------------------
+export function getLocalAbsences(): AbsenceRecord[] {
+  try {
+    const data = localStorage.getItem(STORAGE_KEY_ABSENCES);
+    if (data) {
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {
+    // fallback
+  }
+  return [];
+}
+
+export function saveLocalAbsences(absences: AbsenceRecord[]) {
+  localStorage.setItem(STORAGE_KEY_ABSENCES, JSON.stringify(absences));
+}
+
+export async function loadAllAbsences(): Promise<{
+  data: AbsenceRecord[];
+  source: 'supabase' | 'local';
+}> {
+  if (supabaseInstance && currentConfig.isConfigured) {
+    try {
+      const { data, error } = await supabaseInstance
+        .from('resident_absences')
+        .select('*')
+        .order('start_date', { ascending: true });
+
+      if (!error && data) {
+        const mapped: AbsenceRecord[] = data.map((row: Record<string, unknown>) => ({
+          id: String(row.id),
+          residentId: Number(row.resident_id),
+          residentName: String(row.resident_name || ''),
+          startDate: String(row.start_date || ''),
+          endDate: String(row.end_date || ''),
+          reason: String(row.reason || ''),
+          createdAt: String(row.created_at || ''),
+        }));
+        saveLocalAbsences(mapped);
+        return { data: mapped, source: 'supabase' };
+      }
+    } catch {
+      // fallback to local
+    }
+  }
+  return { data: getLocalAbsences(), source: 'local' };
+}
+
+export async function saveAbsence(absence: AbsenceRecord): Promise<{ success: boolean; source: 'supabase' | 'local' }> {
+  const current = getLocalAbsences();
+  const index = current.findIndex((a) => a.id === absence.id);
+  if (index >= 0) {
+    current[index] = absence;
+  } else {
+    current.push(absence);
+  }
+  saveLocalAbsences(current);
+
+  if (supabaseInstance && currentConfig.isConfigured) {
+    try {
+      const payload = {
+        id: absence.id,
+        resident_id: absence.residentId,
+        resident_name: absence.residentName,
+        start_date: absence.startDate,
+        end_date: absence.endDate,
+        reason: absence.reason || '',
+        updated_at: new Date().toISOString(),
+      };
+      await supabaseInstance.from('resident_absences').upsert(payload, { onConflict: 'id' });
+      return { success: true, source: 'supabase' };
+    } catch {
+      return { success: true, source: 'local' };
+    }
+  }
+
+  return { success: true, source: 'local' };
+}
+
+export async function deleteAbsence(absenceId: string): Promise<{ success: boolean; source: 'supabase' | 'local' }> {
+  const current = getLocalAbsences().filter((a) => a.id !== absenceId);
+  saveLocalAbsences(current);
+
+  if (supabaseInstance && currentConfig.isConfigured) {
+    try {
+      await supabaseInstance.from('resident_absences').delete().eq('id', absenceId);
       return { success: true, source: 'supabase' };
     } catch {
       return { success: true, source: 'local' };
