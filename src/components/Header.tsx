@@ -1,0 +1,140 @@
+import React from 'react';
+import { Utensils, User, Users, Settings, CheckCircle2, AlertCircle } from 'lucide-react';
+import { SupabaseConfig } from '../types';
+
+interface HeaderProps {
+  currentTab: 'resident' | 'kitchen' | 'guests';
+  setCurrentTab: (tab: 'resident' | 'kitchen' | 'guests') => void;
+  supabaseConfig: SupabaseConfig;
+  onOpenSettings: () => void;
+  syncSource: 'supabase' | 'local';
+  isSaving: boolean;
+  guestCountTotal: number;
+}
+
+export const Header: React.FC<HeaderProps> = ({
+  currentTab,
+  setCurrentTab,
+  supabaseConfig,
+  onOpenSettings,
+  syncSource,
+  isSaving,
+  guestCountTotal,
+}) => {
+  return (
+    <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-md">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        
+        {/* Brand */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white shadow-md font-bold text-xl">
+              🍽️
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg font-bold tracking-tight text-white">Comidas Residencia</h1>
+                <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full">
+                  10 Residentes
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">Planificador de comidas, tuppers, turnos e invitados</p>
+            </div>
+          </div>
+
+          {/* Mobile settings trigger */}
+          <div className="flex md:hidden items-center gap-2">
+            <button
+              onClick={onOpenSettings}
+              className="p-2 rounded-lg bg-slate-800 text-slate-300 hover:text-white"
+              title="Ajustes de conexión"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Tab Navigation: Purely Practical */}
+        <div className="flex items-center overflow-x-auto bg-slate-950/70 p-1 rounded-xl border border-slate-800 scrollbar-none gap-1">
+          <button
+            onClick={() => setCurrentTab('resident')}
+            className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${
+              currentTab === 'resident'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <User className="w-4 h-4 text-emerald-300" />
+            <span>Soy Residente</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentTab('kitchen')}
+            className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${
+              currentTab === 'kitchen'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <Utensils className="w-4 h-4 text-amber-300" />
+            <span>Cocina y Comedor</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentTab('guests')}
+            className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${
+              currentTab === 'guests'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <Users className="w-4 h-4 text-indigo-300" />
+            <span>Invitados</span>
+            {guestCountTotal > 0 && (
+              <span className="bg-indigo-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full">
+                {guestCountTotal}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Database connection badge & settings */}
+        <div className="hidden md:flex items-center gap-3">
+          {isSaving ? (
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-950/80 text-amber-300 border border-amber-800/60">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+              <span>Guardando...</span>
+            </div>
+          ) : syncSource === 'supabase' && supabaseConfig.isConfigured ? (
+            <button
+              onClick={onOpenSettings}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-950/90 text-emerald-300 border border-emerald-800 hover:bg-emerald-900/80 transition"
+              title="Conectado a Supabase"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Sincronizado</span>
+            </button>
+          ) : (
+            <button
+              onClick={onOpenSettings}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition"
+              title="Modo Local"
+            >
+              <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+              <span>Modo Local</span>
+            </button>
+          )}
+
+          <button
+            onClick={onOpenSettings}
+            className="p-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700 transition"
+            title="Ajustes de conexión"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
+
+      </div>
+    </header>
+  );
+};

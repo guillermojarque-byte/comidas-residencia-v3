@@ -1,0 +1,6 @@
+{
+  "name": "Gestor de Comidas Residencia",
+  "description": "Planificador de comidas, tuppers, turnos y registro de invitados para los 10 residentes con panel de cocina.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

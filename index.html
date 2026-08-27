@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gestión de Comidas Residencia</title>
+    
+    <!-- Librería de Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+      window.SUPABASE_URL = 'https://ykrclbkgwjmwnslqjmtl.supabase.co';
+      window.SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlrcmNsYmtnd2ptd25zbHFqbXRsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3NjQ3NjgsImV4cCI6MjEwMzM0MDc2OH0.0O_ohZvYX2lgw9b_G29vrQSDPJYBqmFybNXElSNEZvw';
+      try {
+        if (window.supabase && typeof window.supabase.createClient === 'function') {
+          window.supabaseClient = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_KEY);
+        }
+      } catch (e) {
+        console.warn('Supabase init:', e);
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
