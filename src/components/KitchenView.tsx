@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { DAYS, GUEST_MENU_LABELS, GUEST_SERVICE_LABELS } from '../constants';
 import { DayOfWeek, GuestEntry, GuestMealType, Resident, ResidentWeeklySchedule } from '../types';
+import { getDayShortFormatted, getDayFullFormatted, getDayDateOnly } from '../utils/dateUtils';
 
 interface KitchenViewProps {
   residents: Resident[];
@@ -240,19 +241,25 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
           {DAYS.map((day) => {
             const isSelected = day.id === selectedDay;
             const totals = computeDayTotals(day.id);
+            const dateOnly = getDayDateOnly(day.id);
 
             return (
               <button
                 key={day.id}
                 onClick={() => onSelectDay(day.id)}
-                className={`p-3 rounded-xl text-center transition-all border flex flex-col items-center justify-between gap-1.5 ${
+                className={`p-2.5 rounded-xl text-center transition-all border flex flex-col items-center justify-between gap-1 ${
                   isSelected
                     ? 'bg-slate-900 text-white border-slate-900 shadow-md ring-2 ring-amber-500/50'
                     : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-200'
                 }`}
               >
                 <div className="flex items-center justify-between w-full">
-                  <span className="text-[11px] font-semibold">{day.short}</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[11px] font-bold">{day.short}</span>
+                    <span className={`text-[10px] font-semibold ${isSelected ? 'text-amber-300' : 'text-slate-500'}`}>
+                      {dateOnly}
+                    </span>
+                  </div>
                   {totals.dayGuests.length > 0 && (
                     <span className="text-[9px] px-1 bg-indigo-500 text-white rounded font-bold">
                       +{totals.dayGuests.reduce((s, g) => s + g.count, 0)} inv
@@ -260,7 +267,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                   )}
                 </div>
 
-                <span className={`text-base font-extrabold block ${isSelected ? 'text-amber-400' : 'text-slate-900'}`}>
+                <span className={`text-sm font-extrabold block ${isSelected ? 'text-amber-400' : 'text-slate-900'}`}>
                   {day.label}
                 </span>
 
@@ -290,7 +297,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                 Plan de Cocina para Hoy
               </span>
               <h3 className="text-2xl font-black text-white capitalize">
-                {currentDayMeta?.label}
+                {getDayFullFormatted(selectedDay)}
               </h3>
               <p className="text-xs text-slate-300 mt-1">
                 Gran Total: <strong className="text-emerald-400 text-sm">{dayTotals.granTotalDia} raciones</strong> para el día ({dayTotals.totalDesayuno} desayunos, {dayTotals.totalComidaRaciones} comidas, {dayTotals.totalCenaRaciones} cenas).
@@ -545,7 +552,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
           {/* Tabla Nominal de Residentes (Iniciales) */}
           <div className="bg-white rounded-2xl p-5 md:p-6 shadow-sm border border-slate-200 space-y-4">
             <h3 className="text-base font-extrabold text-slate-900 flex items-center justify-between">
-              <span>📋 Lista Nominal de los 10 Residentes ({currentDayMeta?.label})</span>
+              <span>📋 Lista Nominal de los 10 Residentes ({getDayFullFormatted(selectedDay)})</span>
               <span className="text-xs font-normal text-slate-500">Orden oficial de residencia</span>
             </h3>
 
@@ -700,7 +707,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                       }`}
                     >
                       <td className="p-3 font-extrabold text-slate-900">
-                        <span>{d.label}</span>
+                        <span>{getDayShortFormatted(d.id)}</span>
                         {t.dayGuests.length > 0 && (
                           <span className="ml-1.5 text-[10px] px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-800">
                             +{t.dayGuests.reduce((s, g) => s + g.count, 0)} inv
@@ -737,7 +744,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                 Modo Pizarra de Cocina
               </span>
               <h2 className="text-3xl font-black text-white capitalize">
-                {currentDayMeta?.label}
+                {getDayFullFormatted(selectedDay)}
               </h2>
             </div>
             <button

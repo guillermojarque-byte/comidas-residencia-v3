@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Users, Plus, Trash2, Calendar, Utensils, Clock, Package, Sparkles, Filter } from 'lucide-react';
 import { DAYS, GUEST_MENU_LABELS, GUEST_SERVICE_LABELS } from '../constants';
 import { DayOfWeek, GuestEntry, GuestMealType, Resident } from '../types';
+import { getDayShortFormatted, getDayFullFormatted, getDayDateOnly } from '../utils/dateUtils';
 
 interface GuestsViewProps {
   guests: GuestEntry[];
@@ -89,6 +90,7 @@ export const GuestsView: React.FC<GuestsViewProps> = ({
           {DAYS.map((d) => {
             const isSelected = filterDay === d.id;
             const countForDay = guests.filter((g) => g.day === d.id).reduce((sum, g) => sum + g.count, 0);
+            const dateOnly = getDayDateOnly(d.id);
 
             return (
               <button
@@ -97,20 +99,28 @@ export const GuestsView: React.FC<GuestsViewProps> = ({
                   setFilterDay(d.id);
                   onSelectDay(d.id);
                 }}
-                className={`py-2.5 px-2 rounded-xl text-center transition border font-bold text-xs flex flex-col items-center justify-center gap-0.5 ${
+                className={`py-2 px-1.5 rounded-xl text-center transition border font-bold text-xs flex flex-col items-center justify-center gap-0.5 ${
                   isSelected
                     ? 'bg-slate-900 text-white border-slate-900 shadow-sm ring-2 ring-indigo-500/50'
                     : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-200'
                 }`}
               >
-                <span>{d.label}</span>
-                {countForDay > 0 ? (
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-500 text-white font-black">
-                    +{countForDay}
+                <div className="flex items-center gap-1">
+                  <span>{d.short}</span>
+                  <span className={`text-[10px] font-semibold ${isSelected ? 'text-indigo-300' : 'text-slate-500'}`}>
+                    {dateOnly}
                   </span>
-                ) : (
-                  <span className="text-[10px] text-slate-400 font-normal">0</span>
-                )}
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-[11px]">{d.label}</span>
+                  {countForDay > 0 ? (
+                    <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-indigo-500 text-white font-black">
+                      +{countForDay}
+                    </span>
+                  ) : (
+                    <span className="text-[9px] text-slate-400 font-normal">0</span>
+                  )}
+                </div>
               </button>
             );
           })}
@@ -167,7 +177,7 @@ export const GuestsView: React.FC<GuestsViewProps> = ({
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="px-2 py-0.5 rounded-lg bg-slate-900 text-white text-xs font-black capitalize">
-                        {dayMeta?.label}
+                        {getDayFullFormatted(g.day)}
                       </span>
                       <span className="text-xs font-black text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
                         {g.count} {g.count === 1 ? 'comensal' : 'comensales'}

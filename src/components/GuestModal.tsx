@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Users, Utensils, Calendar, UserCheck, AlertCircle, Plus, Check } from 'lucide-react';
 import { DAYS, GUEST_MENU_LABELS, GUEST_SERVICE_LABELS } from '../constants';
 import { DayOfWeek, GuestEntry, GuestMealType, GuestMenuType, GuestServiceMode, Resident } from '../types';
+import { getDayDateOnly } from '../utils/dateUtils';
 
 interface GuestModalProps {
   isOpen: boolean;
@@ -89,13 +90,16 @@ export const GuestModal: React.FC<GuestModalProps> = ({
                   type="button"
                   key={d.id}
                   onClick={() => setDay(d.id)}
-                  className={`py-2 text-xs rounded-xl font-bold border transition ${
+                  className={`py-1.5 px-1 text-xs rounded-xl font-bold border transition flex flex-col items-center justify-center gap-0.5 ${
                     day === d.id
                       ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
                       : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-200'
                   }`}
                 >
-                  {d.short}
+                  <span>{d.short}</span>
+                  <span className={`text-[10px] font-semibold ${day === d.id ? 'text-emerald-300' : 'text-slate-500'}`}>
+                    {getDayDateOnly(d.id)}
+                  </span>
                 </button>
               ))}
             </div>

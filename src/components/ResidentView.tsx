@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { DAYS, DEFAULT_MEAL_SELECTION, GUEST_MENU_LABELS, GUEST_SERVICE_LABELS } from '../constants';
 import { DayOfWeek, GuestEntry, GuestMealType, MealSelection, Resident, ResidentWeeklySchedule } from '../types';
+import { getDayShortFormatted, getDayFullFormatted, getDayDateOnly } from '../utils/dateUtils';
 
 interface ResidentViewProps {
   residents: Resident[];
@@ -302,19 +303,25 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
           {DAYS.map((day) => {
             const isSelected = day.id === selectedDay;
             const dayPref = weeklySchedule[day.id];
+            const formattedDate = getDayDateOnly(day.id);
 
             return (
               <button
                 key={day.id}
                 onClick={() => onSelectDay(day.id)}
-                className={`py-3 px-2 rounded-xl text-center transition-all relative border flex flex-col items-center justify-center gap-1 ${
+                className={`py-2.5 px-2 rounded-xl text-center transition-all relative border flex flex-col items-center justify-center gap-0.5 ${
                   isSelected
                     ? 'bg-slate-900 text-white border-slate-900 shadow-md ring-2 ring-emerald-500/50'
                     : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-200'
                 }`}
               >
-                <span className="text-xs font-semibold block">{day.short}</span>
-                <span className={`text-sm font-bold block ${isSelected ? 'text-emerald-400' : 'text-slate-900'}`}>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs font-bold block">{day.short}</span>
+                  <span className={`text-[11px] font-semibold ${isSelected ? 'text-emerald-300' : 'text-slate-500'}`}>
+                    {formattedDate}
+                  </span>
+                </div>
+                <span className={`text-xs font-extrabold block ${isSelected ? 'text-emerald-400' : 'text-slate-900'}`}>
                   {day.label}
                 </span>
 
@@ -347,7 +354,7 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
             </div>
             <div>
               <h2 className="text-xl font-extrabold text-slate-900 capitalize">
-                {DAYS.find((d) => d.id === selectedDay)?.label}
+                {getDayFullFormatted(selectedDay)}
               </h2>
               <p className="text-xs text-slate-500">
                 Selección para el residente <strong className="text-slate-800">{currentResident.name}</strong>
@@ -749,7 +756,7 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
                   >
                     <td className="p-2.5 font-bold text-slate-800 flex items-center gap-1.5">
                       {isCur && <ChevronRight className="w-3.5 h-3.5 text-emerald-600" />}
-                      <span>{d.label}</span>
+                      <span>{getDayShortFormatted(d.id)}</span>
                     </td>
                     <td className="p-2.5 text-center">
                       {s.desayuno_en_casa ? (

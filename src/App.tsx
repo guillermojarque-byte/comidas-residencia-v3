@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import confetti from 'canvas-confetti';
 import { Header } from './components/Header';
 import { ResidentView } from './components/ResidentView';
@@ -306,6 +306,23 @@ export default function App() {
   const guestCountTotal = guests.reduce((sum, g) => sum + g.count, 0);
   const pendingAdminNotesCount = adminNotes.filter((n) => n.status === 'pendiente').length;
 
+  // Calculate confirmed physical residents on the selected day
+  const confirmedResidentsCount = useMemo(() => {
+    return residents.filter((r) => {
+      const sched = allPreferences[r.id];
+      if (!sched) return false;
+      const dayPref = sched[selectedDay];
+      if (!dayPref) return false;
+      return Boolean(
+        dayPref.desayuno_en_casa ||
+        dayPref.comida_en_casa ||
+        dayPref.comida_tupper ||
+        dayPref.cena_en_casa ||
+        dayPref.cena_tupper
+      );
+    }).length;
+  }, [residents, allPreferences, selectedDay]);
+
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
       
@@ -319,6 +336,9 @@ export default function App() {
         isSaving={isSaving}
         guestCountTotal={guestCountTotal}
         pendingAdminNotesCount={pendingAdminNotesCount}
+        confirmedResidentsCount={confirmedResidentsCount}
+        totalResidentsCount={residents.length}
+        selectedDay={selectedDay}
       />
 
       {/* Main Content Body */}

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Utensils, User, Users, Settings, CheckCircle2, AlertCircle, PhoneCall, ClipboardList } from 'lucide-react';
-import { SupabaseConfig } from '../types';
+import { DayOfWeek, SupabaseConfig } from '../types';
+import { getDayFullFormatted } from '../utils/dateUtils';
 
 interface HeaderProps {
   currentTab: 'resident' | 'kitchen' | 'guests' | 'admin_agenda';
@@ -11,6 +12,9 @@ interface HeaderProps {
   isSaving: boolean;
   guestCountTotal: number;
   pendingAdminNotesCount?: number;
+  confirmedResidentsCount: number;
+  totalResidentsCount: number;
+  selectedDay: DayOfWeek;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -22,7 +26,12 @@ export const Header: React.FC<HeaderProps> = ({
   isSaving,
   guestCountTotal,
   pendingAdminNotesCount = 0,
+  confirmedResidentsCount,
+  totalResidentsCount,
+  selectedDay,
 }) => {
+  const formattedDay = getDayFullFormatted(selectedDay);
+
   return (
     <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -36,11 +45,18 @@ export const Header: React.FC<HeaderProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-lg font-bold tracking-tight text-white">Comidas Residencia</h1>
-                <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full">
-                  10 Residentes
+                <span 
+                  className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-black px-2.5 py-0.5 rounded-full"
+                  title={`${confirmedResidentsCount} de ${totalResidentsCount} residentes físicos confirmados en comedor para ${formattedDay}`}
+                >
+                  {confirmedResidentsCount}/{totalResidentsCount} residentes
                 </span>
               </div>
-              <p className="text-xs text-slate-400">Planificador de comidas, tuppers y agenda de administración</p>
+              <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
+                <span className="font-semibold text-emerald-400">{formattedDay}</span>
+                <span>•</span>
+                <span>Planificador de comidas y agenda</span>
+              </p>
             </div>
           </div>
 
