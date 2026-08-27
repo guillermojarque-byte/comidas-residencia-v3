@@ -84,3 +84,29 @@ export interface MealTotals {
   cena_invitados_total: number;
   cena_total_raciones: number; // Residentes + Invitados
 }
+
+export type AdminNoteCategory = 
+  | 'organizacion'   // Organización de la casa
+  | 'horarios'       // Cambio de horarios
+  | 'cocina'         // Cocina y compras
+  | 'mantenimiento'  // Mantenimiento y reparaciones
+  | 'general';       // General / Varios
+
+export type AdminNotePriority = 'normal' | 'urgente';
+
+export type AdminNoteStatus = 'pendiente' | 'transmitido' | 'resuelto';
+
+export interface AdminNote {
+  id: string;
+  title: string;              // Resumen / Título de la petición
+  description?: string;        // Detalles explicativos
+  category: AdminNoteCategory; // Categoría
+  author: string;              // Iniciales del residente o "Director" / "Personal"
+  priority: AdminNotePriority; // Normal / Urgente
+  status: AdminNoteStatus;     // Pendiente, Transmitido por teléfono, Resuelto
+  targetDate?: string;         // Fecha relevante o día (ej. YYYY-MM-DD)
+  createdAt: string;           // Timestamp ISO
+  updatedAt?: string;
+  calledInAt?: string;         // Cuándo se transmitió por teléfono
+  responseNotes?: string;      // Respuesta o resolución
+}

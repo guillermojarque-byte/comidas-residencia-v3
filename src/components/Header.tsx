@@ -1,15 +1,16 @@
 import React from 'react';
-import { Utensils, User, Users, Settings, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Utensils, User, Users, Settings, CheckCircle2, AlertCircle, PhoneCall, ClipboardList } from 'lucide-react';
 import { SupabaseConfig } from '../types';
 
 interface HeaderProps {
-  currentTab: 'resident' | 'kitchen' | 'guests';
-  setCurrentTab: (tab: 'resident' | 'kitchen' | 'guests') => void;
+  currentTab: 'resident' | 'kitchen' | 'guests' | 'admin_agenda';
+  setCurrentTab: (tab: 'resident' | 'kitchen' | 'guests' | 'admin_agenda') => void;
   supabaseConfig: SupabaseConfig;
   onOpenSettings: () => void;
   syncSource: 'supabase' | 'local';
   isSaving: boolean;
   guestCountTotal: number;
+  pendingAdminNotesCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -20,6 +21,7 @@ export const Header: React.FC<HeaderProps> = ({
   syncSource,
   isSaving,
   guestCountTotal,
+  pendingAdminNotesCount = 0,
 }) => {
   return (
     <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-md">
@@ -38,7 +40,7 @@ export const Header: React.FC<HeaderProps> = ({
                   10 Residentes
                 </span>
               </div>
-              <p className="text-xs text-slate-400">Planificador de comidas, tuppers, turnos e invitados</p>
+              <p className="text-xs text-slate-400">Planificador de comidas, tuppers y agenda de administración</p>
             </div>
           </div>
 
@@ -58,7 +60,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center overflow-x-auto bg-slate-950/70 p-1 rounded-xl border border-slate-800 scrollbar-none gap-1">
           <button
             onClick={() => setCurrentTab('resident')}
-            className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${
+            className={`px-3.5 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${
               currentTab === 'resident'
                 ? 'bg-emerald-600 text-white shadow-sm'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
@@ -70,7 +72,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             onClick={() => setCurrentTab('kitchen')}
-            className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${
+            className={`px-3.5 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${
               currentTab === 'kitchen'
                 ? 'bg-emerald-600 text-white shadow-sm'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
@@ -82,7 +84,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             onClick={() => setCurrentTab('guests')}
-            className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${
+            className={`px-3.5 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${
               currentTab === 'guests'
                 ? 'bg-indigo-600 text-white shadow-sm'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
@@ -93,6 +95,23 @@ export const Header: React.FC<HeaderProps> = ({
             {guestCountTotal > 0 && (
               <span className="bg-indigo-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full">
                 {guestCountTotal}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setCurrentTab('admin_agenda')}
+            className={`px-3.5 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${
+              currentTab === 'admin_agenda'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <ClipboardList className="w-4 h-4 text-blue-300" />
+            <span>Agenda Administración</span>
+            {pendingAdminNotesCount > 0 && (
+              <span className="bg-amber-500 text-slate-950 text-[10px] font-black px-1.5 py-0.2 rounded-full">
+                {pendingAdminNotesCount}
               </span>
             )}
           </button>

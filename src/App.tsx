@@ -4,7 +4,9 @@ import { Header } from './components/Header';
 import { ResidentView } from './components/ResidentView';
 import { KitchenView } from './components/KitchenView';
 import { GuestsView } from './components/GuestsView';
+import { AdminAgendaView } from './components/AdminAgendaView';
 import { GuestModal } from './components/GuestModal';
+import { AdminNoteModal } from './components/AdminNoteModal';
 import { SupabaseConfigModal } from './components/SupabaseConfigModal';
 import { ResidentManagerModal } from './components/ResidentManagerModal';
 import { 
@@ -15,20 +17,34 @@ import {
   saveStoredResidents,
   loadAllGuests,
   saveGuestEntry,
-  deleteGuestEntry
+  deleteGuestEntry,
+  loadAllAdminNotes,
+  saveAdminNote,
+  deleteAdminNote
 } from './services/storageService';
-import { DayOfWeek, GuestEntry, GuestMealType, MealSelection, Resident, ResidentWeeklySchedule, SupabaseConfig } from './types';
+import { 
+  AdminNote, 
+  AdminNoteStatus, 
+  DayOfWeek, 
+  GuestEntry, 
+  GuestMealType, 
+  MealSelection, 
+  Resident, 
+  ResidentWeeklySchedule, 
+  SupabaseConfig 
+} from './types';
 import { DAYS, createDefaultWeekSchedule } from './constants';
 import { Users } from 'lucide-react';
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<'resident' | 'kitchen' | 'guests'>('resident');
+  const [currentTab, setCurrentTab] = useState<'resident' | 'kitchen' | 'guests' | 'admin_agenda'>('resident');
   const [residents, setResidents] = useState<Resident[]>(getStoredResidents());
   const [selectedResidentId, setSelectedResidentId] = useState<number>(1);
   const [selectedDay, setSelectedDay] = useState<DayOfWeek>('lunes');
   
   const [allPreferences, setAllPreferences] = useState<Record<number, ResidentWeeklySchedule>>({});
   const [guests, setGuests] = useState<GuestEntry[]>([]);
+  const [adminNotes, setAdminNotes] = useState<AdminNote[]>([]);
   
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>({
     url: '',
@@ -43,6 +59,10 @@ export default function App() {
   const [isConfigModalOpen, setIsConfigModalOpen] = useState<boolean>(false);
   const [isResidentModalOpen, setIsResidentModalOpen] = useState<boolean>(false);
   const [isGuestModalOpen, setIsGuestModalOpen] = useState<boolean>(false);
+  const [isAdminNoteModalOpen, setIsAdminNoteModalOpen] = useState<boolean>(false);
+  const [noteToEdit, setNoteToEdit] = useState<AdminNote | null>(null);
+  const [initialNoteAuthor, setInitialNoteAuthor] = useState<string>('ILC');
+
   const [guestModalPreset, setGuestModalPreset] = useState<{
     day: DayOfWeek;
     mealType: GuestMealType;
@@ -60,14 +80,16 @@ export default function App() {
 
     const loadData = async () => {
       setIsLoading(true);
-      const [resPref, resGuests] = await Promise.all([
+      const [resPref, resGuests, resNotes] = await Promise.all([
         loadAllPreferences(),
         loadAllGuests(),
+        loadAllAdminNotes(),
       ]);
 
       setAllPreferences(resPref.data);
       setSyncSource(resPref.source);
       setGuests(resGuests.data);
+      setAdminNotes(resNotes.data);
       setIsLoading(false);
     };
 
@@ -211,6 +233,56 @@ export default function App() {
     setIsSaving(false);
   };
 
+  // Admin Agenda Notes Handlers
+  const handleOpenAddAdminNoteModal = (author?: string) => {
+    const curRes = residents.find((r) => r.id === selectedResidentId);
+    setInitialNoteAuthor(author || curRes?.name || residents[0]?.name || 'ILC');
+    setNoteToEdit(null);
+    setIsAdminNoteModalOpen(true);
+  };
+
+  const handleEditAdminNote = (note: AdminNote) => {
+    setNoteToEdit(note);
+    setIsAdminNoteModalOpen(true);
+  };
+
+  const handleSaveAdminNote = async (newNote: AdminNote) => {
+    setAdminNotes((prev) => {
+      const idx = prev.findIndex((n) => n.id === newNote.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = newNote;
+        return next;
+      }
+      return [newNote, ...prev];
+    });
+
+    setIsSaving(true);
+    await saveAdminNote(newNote);
+    setIsSaving(false);
+  };
+
+  const handleDeleteAdminNote = async (id: string) => {
+    setAdminNotes((prev) => prev.filter((n) => n.id !== id));
+    setIsSaving(true);
+    await deleteAdminNote(id);
+    setIsSaving(false);
+  };
+
+  const handleToggleAdminNoteStatus = async (note: AdminNote, nextStatus: AdminNoteStatus) => {
+    const updated: AdminNote = {
+      ...note,
+      status: nextStatus,
+      calledInAt: nextStatus === 'transmitido' ? new Date().toISOString() : note.calledInAt,
+      updatedAt: new Date().toISOString(),
+    };
+
+    setAdminNotes((prev) => prev.map((n) => (n.id === note.id ? updated : n)));
+    setIsSaving(true);
+    await saveAdminNote(updated);
+    setIsSaving(false);
+  };
+
   const handleConfigUpdated = (newConfig: SupabaseConfig) => {
     setSupabaseConfig(newConfig);
     // Reload data with new configuration
@@ -221,6 +293,9 @@ export default function App() {
     loadAllGuests().then((res) => {
       setGuests(res.data);
     });
+    loadAllAdminNotes().then((res) => {
+      setAdminNotes(res.data);
+    });
   };
 
   const handleSaveResidents = (newResidents: Resident[]) => {
@@ -229,6 +304,7 @@ export default function App() {
   };
 
   const guestCountTotal = guests.reduce((sum, g) => sum + g.count, 0);
+  const pendingAdminNotesCount = adminNotes.filter((n) => n.status === 'pendiente').length;
 
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
@@ -242,6 +318,7 @@ export default function App() {
         syncSource={syncSource}
         isSaving={isSaving}
         guestCountTotal={guestCountTotal}
+        pendingAdminNotesCount={pendingAdminNotesCount}
       />
 
       {/* Main Content Body */}
@@ -296,6 +373,18 @@ export default function App() {
                 onDeleteGuest={handleDeleteGuest}
               />
             )}
+
+            {currentTab === 'admin_agenda' && (
+              <AdminAgendaView
+                notes={adminNotes}
+                residents={residents}
+                onOpenAddModal={handleOpenAddAdminNoteModal}
+                onEditNote={handleEditAdminNote}
+                onDeleteNote={handleDeleteAdminNote}
+                onToggleStatus={handleToggleAdminNoteStatus}
+                syncSource={syncSource}
+              />
+            )}
           </>
         )}
 
@@ -304,7 +393,7 @@ export default function App() {
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 py-4 px-6 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-3 no-print">
         <div className="flex items-center gap-2">
-          <span>🍽️ Gestión de Comidas de Residencia (10 plazas)</span>
+          <span>🍽️ Gestión de Comidas y Agenda de Residencia (10 plazas)</span>
           <span>•</span>
           <button
             onClick={() => setIsResidentModalOpen(true)}
@@ -351,6 +440,15 @@ export default function App() {
         initialMealType={guestModalPreset.mealType}
         initialHostName={guestModalPreset.hostName}
         onSaveGuest={handleSaveGuest}
+      />
+
+      <AdminNoteModal
+        isOpen={isAdminNoteModalOpen}
+        onClose={() => setIsAdminNoteModalOpen(false)}
+        noteToEdit={noteToEdit}
+        residents={residents}
+        initialAuthor={initialNoteAuthor}
+        onSaveNote={handleSaveAdminNote}
       />
 
     </div>

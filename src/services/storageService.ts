@@ -1,11 +1,12 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { DAYS, INITIAL_RESIDENTS, createDefaultWeekSchedule } from '../constants';
-import { DayOfWeek, GuestEntry, MealSelection, Resident, ResidentWeeklySchedule, SupabaseConfig } from '../types';
+import { AdminNote, DayOfWeek, GuestEntry, MealSelection, Resident, ResidentWeeklySchedule, SupabaseConfig } from '../types';
 
 const STORAGE_KEY_PREFERENCES = 'residencia_meal_preferences_v2';
 const STORAGE_KEY_CONFIG = 'residencia_supabase_config_v2';
 const STORAGE_KEY_RESIDENTS = 'residencia_residents_initials_v2';
 const STORAGE_KEY_GUESTS = 'residencia_guests_v2';
+const STORAGE_KEY_ADMIN_AGENDA = 'residencia_admin_agenda_v2';
 
 let supabaseInstance: SupabaseClient | null = null;
 let currentConfig: SupabaseConfig = {
@@ -418,5 +419,152 @@ export async function testSupabaseConnection(
       message: `No se pudo conectar con Supabase: ${errorMsg}`,
     };
   }
+}
+
+// ----------------------------------------------------
+// AGENDA ADMINISTRACIÓN (PETICIONES Y AVISOS)
+// ----------------------------------------------------
+const DEFAULT_INITIAL_ADMIN_NOTES: AdminNote[] = [
+  {
+    id: 'note_init_1',
+    title: 'Ajuste de horario de cena del jueves',
+    description: 'Varios residentes tienen examen y partido universitario. Solicitar retrasar 30 minutos el segundo turno de cena o dejar los platos preparados.',
+    category: 'horarios',
+    author: 'ILC',
+    priority: 'urgente',
+    status: 'pendiente',
+    targetDate: 'Jueves',
+    createdAt: new Date(Date.now() - 3600000 * 4).toISOString(),
+  },
+  {
+    id: 'note_init_2',
+    title: 'Revisión del termo de agua caliente en planta 2',
+    description: 'Por las mañanas baja la presión y sale templada a primera hora. Pedir que avisen al servicio técnico de fontanería.',
+    category: 'mantenimiento',
+    author: 'JAM',
+    priority: 'normal',
+    status: 'pendiente',
+    targetDate: 'Hoy',
+    createdAt: new Date(Date.now() - 3600000 * 12).toISOString(),
+  },
+  {
+    id: 'note_init_3',
+    title: 'Reposición de bolsas de tupper y etiquetas',
+    description: 'En el armario de cocina quedan pocas bolsas herméticas para las comidas para llevar de la universidad.',
+    category: 'cocina',
+    author: 'ASR',
+    priority: 'normal',
+    status: 'pendiente',
+    targetDate: 'Viernes',
+    createdAt: new Date(Date.now() - 3600000 * 20).toISOString(),
+  },
+];
+
+export function getLocalAdminNotes(): AdminNote[] {
+  try {
+    const data = localStorage.getItem(STORAGE_KEY_ADMIN_AGENDA);
+    if (data) {
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {
+    // fallback
+  }
+  // Store default sample notes
+  localStorage.setItem(STORAGE_KEY_ADMIN_AGENDA, JSON.stringify(DEFAULT_INITIAL_ADMIN_NOTES));
+  return DEFAULT_INITIAL_ADMIN_NOTES;
+}
+
+export function saveLocalAdminNotes(notes: AdminNote[]) {
+  localStorage.setItem(STORAGE_KEY_ADMIN_AGENDA, JSON.stringify(notes));
+}
+
+export async function loadAllAdminNotes(): Promise<{
+  data: AdminNote[];
+  source: 'supabase' | 'local';
+}> {
+  if (supabaseInstance && currentConfig.isConfigured) {
+    try {
+      const { data, error } = await supabaseInstance
+        .from('admin_agenda_notes')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!error && data && data.length >= 0) {
+        const mapped: AdminNote[] = data.map((row: Record<string, unknown>) => ({
+          id: String(row.id),
+          title: String(row.title || ''),
+          description: String(row.description || ''),
+          category: (row.category as AdminNote['category']) || 'general',
+          author: String(row.author || 'Residente'),
+          priority: (row.priority as AdminNote['priority']) || 'normal',
+          status: (row.status as AdminNote['status']) || 'pendiente',
+          targetDate: row.target_date ? String(row.target_date) : undefined,
+          createdAt: String(row.created_at || new Date().toISOString()),
+          updatedAt: row.updated_at ? String(row.updated_at) : undefined,
+          calledInAt: row.called_in_at ? String(row.called_in_at) : undefined,
+          responseNotes: row.response_notes ? String(row.response_notes) : undefined,
+        }));
+        saveLocalAdminNotes(mapped);
+        return { data: mapped, source: 'supabase' };
+      }
+    } catch {
+      // ignore, fallback to local
+    }
+  }
+  return { data: getLocalAdminNotes(), source: 'local' };
+}
+
+export async function saveAdminNote(note: AdminNote): Promise<{ success: boolean; source: 'supabase' | 'local' }> {
+  // Update local state
+  const current = getLocalAdminNotes();
+  const index = current.findIndex((n) => n.id === note.id);
+  if (index >= 0) {
+    current[index] = { ...note, updatedAt: new Date().toISOString() };
+  } else {
+    current.unshift(note);
+  }
+  saveLocalAdminNotes(current);
+
+  if (supabaseInstance && currentConfig.isConfigured) {
+    try {
+      const payload = {
+        id: note.id,
+        title: note.title,
+        description: note.description || '',
+        category: note.category,
+        author: note.author,
+        priority: note.priority,
+        status: note.status,
+        target_date: note.targetDate || null,
+        created_at: note.createdAt,
+        updated_at: new Date().toISOString(),
+        called_in_at: note.calledInAt || null,
+        response_notes: note.responseNotes || null,
+      };
+      await supabaseInstance.from('admin_agenda_notes').upsert(payload, { onConflict: 'id' });
+      return { success: true, source: 'supabase' };
+    } catch {
+      return { success: true, source: 'local' };
+    }
+  }
+
+  return { success: true, source: 'local' };
+}
+
+export async function deleteAdminNote(noteId: string): Promise<{ success: boolean; source: 'supabase' | 'local' }> {
+  const current = getLocalAdminNotes().filter((n) => n.id !== noteId);
+  saveLocalAdminNotes(current);
+
+  if (supabaseInstance && currentConfig.isConfigured) {
+    try {
+      await supabaseInstance.from('admin_agenda_notes').delete().eq('id', noteId);
+      return { success: true, source: 'supabase' };
+    } catch {
+      return { success: true, source: 'local' };
+    }
+  }
+
+  return { success: true, source: 'local' };
 }
 
