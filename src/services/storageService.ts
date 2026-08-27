@@ -130,7 +130,11 @@ export function getStoredResidents(): Resident[] {
       const parsed: Resident[] = JSON.parse(data);
       // Validate that it has 10 elements and uses the initials structure
       if (Array.isArray(parsed) && parsed.length === 10 && parsed.some(r => r.name === 'ILC' || r.name === 'ASR')) {
-        return parsed;
+        const updated = parsed.map(r => r.name === 'MGB' ? { ...r, name: 'MFG' } : r);
+        if (JSON.stringify(updated) !== JSON.stringify(parsed)) {
+          localStorage.setItem(STORAGE_KEY_RESIDENTS, JSON.stringify(updated));
+        }
+        return updated;
       }
     }
   } catch {

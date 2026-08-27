@@ -19,7 +19,7 @@ export const INITIAL_RESIDENTS: Resident[] = [
   { id: 6, name: 'DPJC', avatarColor: 'bg-teal-600' },
   { id: 7, name: 'DJAM', avatarColor: 'bg-indigo-600' },
   { id: 8, name: 'JGC', avatarColor: 'bg-cyan-600' },
-  { id: 9, name: 'MGB', avatarColor: 'bg-pink-600' },
+  { id: 9, name: 'MFG', avatarColor: 'bg-pink-600' },
   { id: 10, name: 'ZBB', avatarColor: 'bg-orange-600' },
 ];
 
