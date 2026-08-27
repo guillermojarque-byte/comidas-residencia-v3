@@ -72,3 +72,20 @@ export function getDayFullFormatted(dayId: DayOfWeek, baseDate: Date = new Date(
   const dateStr = getDayDateOnly(dayId, baseDate);
   return `${fullName} ${dateStr}`;
 }
+
+/**
+ * Returns the next DayOfWeek in sequence (e.g. lunes -> martes, domingo -> lunes)
+ */
+export function getNextDayOfWeek(dayId: DayOfWeek): DayOfWeek {
+  const dayOrder: DayOfWeek[] = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'];
+  const currentIndex = dayOrder.indexOf(dayId);
+  const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % dayOrder.length : 0;
+  return dayOrder[nextIndex];
+}
+
+/**
+ * Formats meal counts into standard "10D · 10C · 10Cn" notation
+ */
+export function formatMealsSummary(desayunos: number, comidas: number, cenas: number): string {
+  return `${desayunos}D · ${comidas}C · ${cenas}Cn`;
+}

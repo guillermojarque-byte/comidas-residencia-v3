@@ -15,11 +15,20 @@ import {
   Minimize2,
   Check,
   X,
-  AlertCircle
+  AlertCircle,
+  Sunrise,
+  ArrowRight,
+  ShieldCheck
 } from 'lucide-react';
 import { DAYS, GUEST_MENU_LABELS, GUEST_SERVICE_LABELS } from '../constants';
 import { DayOfWeek, GuestEntry, GuestMealType, Resident, ResidentWeeklySchedule } from '../types';
-import { getDayShortFormatted, getDayFullFormatted, getDayDateOnly } from '../utils/dateUtils';
+import { 
+  getDayShortFormatted, 
+  getDayFullFormatted, 
+  getDayDateOnly, 
+  getNextDayOfWeek, 
+  formatMealsSummary 
+} from '../utils/dateUtils';
 
 interface KitchenViewProps {
   residents: Resident[];
@@ -161,6 +170,19 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
   const dayTotals = computeDayTotals(selectedDay);
   const currentDayMeta = DAYS.find((d) => d.id === selectedDay);
 
+  // Next day calculations for Dirección / Cocina morning preparation
+  const nextDay = getNextDayOfWeek(selectedDay);
+  const nextDayTotals = computeDayTotals(nextDay);
+  const nextDayMeta = DAYS.find((d) => d.id === nextDay);
+  const residentsBreakfastNextDay = residents.filter((r) => {
+    const sched = allPreferences[r.id];
+    return sched?.[nextDay]?.desayuno_en_casa;
+  });
+  const residentsNoBreakfastNextDay = residents.filter((r) => {
+    const sched = allPreferences[r.id];
+    return !sched?.[nextDay]?.desayuno_en_casa;
+  });
+
   const handlePrint = () => {
     window.print();
   };
@@ -242,12 +264,13 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
             const isSelected = day.id === selectedDay;
             const totals = computeDayTotals(day.id);
             const dateOnly = getDayDateOnly(day.id);
+            const summaryBadge = formatMealsSummary(totals.totalDesayuno, totals.totalComidaRaciones, totals.totalCenaRaciones);
 
             return (
               <button
                 key={day.id}
                 onClick={() => onSelectDay(day.id)}
-                className={`p-2.5 rounded-xl text-center transition-all border flex flex-col items-center justify-between gap-1 ${
+                className={`p-2.5 rounded-xl text-center transition-all border flex flex-col items-center justify-between gap-1.5 ${
                   isSelected
                     ? 'bg-slate-900 text-white border-slate-900 shadow-md ring-2 ring-amber-500/50'
                     : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-200'
@@ -271,12 +294,10 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                   {day.label}
                 </span>
 
-                <div className="w-full pt-1 border-t border-slate-100/20 text-[10px] font-semibold flex justify-around">
-                  <span title="Comidas">{totals.totalComidaRaciones} C</span>
-                  <span title="Cenas">{totals.totalCenaRaciones} Cn</span>
-                  {totals.totalComidaTupper + totals.totalCenaTupper > 0 && (
-                    <span className="text-indigo-400 font-bold" title="Tuppers">{totals.totalComidaTupper + totals.totalCenaTupper}T</span>
-                  )}
+                <div className="w-full pt-1.5 border-t border-slate-100/20 text-[10px] font-black flex items-center justify-center">
+                  <span className={isSelected ? 'text-amber-300' : 'text-slate-700'} title="Desayunos · Comidas · Cenas">
+                    {summaryBadge}
+                  </span>
                 </div>
               </button>
             );
@@ -292,15 +313,34 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
           
           {/* Banner Resumen Ejecutivo */}
           <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white rounded-2xl p-5 md:p-6 shadow-md border border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <span className="text-amber-400 font-bold text-xs uppercase tracking-wider block">
-                Plan de Cocina para Hoy
-              </span>
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-amber-400 font-bold text-xs uppercase tracking-wider block">
+                  Plan de Cocina para Hoy
+                </span>
+                <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 text-xs font-black px-2.5 py-0.5 rounded-full">
+                  {formatMealsSummary(dayTotals.totalDesayuno, dayTotals.totalComidaRaciones, dayTotals.totalCenaRaciones)}
+                </span>
+              </div>
+              
               <h3 className="text-2xl font-black text-white capitalize">
                 {getDayFullFormatted(selectedDay)}
               </h3>
-              <p className="text-xs text-slate-300 mt-1">
-                Gran Total: <strong className="text-emerald-400 text-sm">{dayTotals.granTotalDia} raciones</strong> para el día ({dayTotals.totalDesayuno} desayunos, {dayTotals.totalComidaRaciones} comidas, {dayTotals.totalCenaRaciones} cenas).
+              
+              <p className="text-xs text-slate-300">
+                Gran Total: <strong className="text-emerald-400 text-sm">{dayTotals.granTotalDia} raciones</strong> para el día (
+                <span className="text-amber-300 font-bold">
+                  {dayTotals.guestDesayuno > 0 ? `${dayTotals.resDesayuno}D + ${dayTotals.guestDesayuno} Inv` : `${dayTotals.totalDesayuno}D`}
+                </span>
+                {' · '}
+                <span className="text-emerald-300 font-bold">
+                  {dayTotals.guestComidaTotal > 0 ? `${dayTotals.resComidaTotal}C + ${dayTotals.guestComidaTotal} Inv` : `${dayTotals.totalComidaRaciones}C`}
+                </span>
+                {' · '}
+                <span className="text-indigo-300 font-bold">
+                  {dayTotals.guestCenaTotal > 0 ? `${dayTotals.resCenaTotal}Cn + ${dayTotals.guestCenaTotal} Inv` : `${dayTotals.totalCenaRaciones}Cn`}
+                </span>
+                ).
               </p>
             </div>
 
@@ -329,13 +369,80 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                 <div className="bg-indigo-950 px-3.5 py-2 rounded-xl border border-indigo-700 text-center">
                   <span className="text-indigo-300 block text-[10px] uppercase font-bold">Invitados Hoy</span>
                   <span className="text-lg font-black text-indigo-200">
-                    {dayTotals.dayGuests.reduce((s, g) => s + g.count, 0)}
+                    +{dayTotals.dayGuests.reduce((s, g) => s + g.count, 0)}
                   </span>
                   <span className="text-[10px] text-indigo-300 block">
                     comensales
                   </span>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* ================================================================= */}
+          {/* TARJETA DESTACADA: PREVISIÓN DE DESAYUNOS PARA MAÑANA (DIRECCIÓN) */}
+          {/* ================================================================= */}
+          <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-slate-50 rounded-2xl p-5 md:p-6 border-2 border-amber-400/60 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-2.5 py-1 bg-amber-500 text-slate-950 font-black text-xs rounded-lg flex items-center gap-1.5 shadow-2xs uppercase tracking-wider">
+                  <Sunrise className="w-4 h-4" />
+                  Previsión Dirección & Cocina (Día Siguiente)
+                </span>
+                <span className="text-xs font-bold text-amber-900 bg-amber-100 px-2.5 py-0.5 rounded-full border border-amber-300">
+                  {getDayFullFormatted(nextDay)}
+                </span>
+              </div>
+
+              <div>
+                <div className="flex flex-wrap items-baseline gap-2.5">
+                  <h4 className="text-xl md:text-2xl font-black text-slate-900">
+                    Desayunos Mañana: <span className="text-amber-700 font-extrabold">{nextDayTotals.totalDesayuno}D</span>
+                  </h4>
+                  <span className="text-xs font-extrabold text-amber-900 bg-amber-100/90 px-2.5 py-0.5 rounded-md border border-amber-200">
+                    {nextDayTotals.guestDesayuno > 0 
+                      ? `${nextDayTotals.resDesayuno} Residentes + ${nextDayTotals.guestDesayuno} Invitados` 
+                      : `${nextDayTotals.resDesayuno} de 10 Residentes`}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 mt-1">
+                  Control vespertino para que la dirección y cocina dejen preparadas las raciones, vajilla y bandejas de la mañana siguiente.
+                </p>
+              </div>
+
+              {/* Lista nominal rápida de quién desayuna mañana */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-[11px] font-bold text-slate-500 mr-1">Residentes confirmados ({residentsBreakfastNextDay.length}):</span>
+                {residentsBreakfastNextDay.map((r) => (
+                  <span 
+                    key={r.id} 
+                    className="px-2 py-0.5 bg-white text-slate-800 border border-amber-200 rounded-md text-[11px] font-bold shadow-2xs"
+                    title={`${r.name} desayuna en comedor mañana`}
+                  >
+                    {r.name}
+                  </span>
+                ))}
+                {residentsNoBreakfastNextDay.length > 0 && (
+                  <span className="text-[11px] text-slate-400 italic ml-1">
+                    (No desayunan: {residentsNoBreakfastNextDay.map((r) => r.name).join(', ')})
+                  </span>
+                )}
+                {nextDayTotals.guestDesayuno > 0 && (
+                  <span className="px-2 py-0.5 bg-indigo-600 text-white rounded-md text-[11px] font-black">
+                    +{nextDayTotals.guestDesayuno} inv
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="shrink-0 flex items-center md:flex-col md:items-end justify-between gap-2 border-t md:border-t-0 pt-3 md:pt-0 border-amber-200/60">
+              <button
+                onClick={() => onSelectDay(nextDay)}
+                className="px-3.5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl text-xs flex items-center gap-1.5 transition shadow-xs"
+              >
+                <span>Ver Menú de Mañana ({nextDayMeta?.label})</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
 
@@ -355,9 +462,16 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                       <span className="text-xs text-slate-500">07:30 - 09:30</span>
                     </div>
                   </div>
-                  <span className="text-2xl font-black text-amber-900">
-                    {dayTotals.totalDesayuno}
-                  </span>
+                  <div className="text-right">
+                    <span className="text-2xl font-black text-amber-900 block">
+                      {dayTotals.totalDesayuno}D
+                    </span>
+                    {dayTotals.guestDesayuno > 0 && (
+                      <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200">
+                        {dayTotals.resDesayuno} Res + {dayTotals.guestDesayuno} Inv
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-2 text-xs">
@@ -376,7 +490,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
               </div>
 
               <div className="pt-2 border-t border-amber-200/60 text-xs text-amber-900 font-medium">
-                ☕ Raciones totales a preparar: <strong>{dayTotals.totalDesayuno}</strong>
+                ☕ Raciones totales a preparar: <strong>{dayTotals.totalDesayuno}D</strong> ({dayTotals.guestDesayuno > 0 ? `${dayTotals.resDesayuno}D + ${dayTotals.guestDesayuno} Inv` : `${dayTotals.resDesayuno}/10 Residentes`})
               </div>
             </div>
 
@@ -393,37 +507,44 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                       <span className="text-xs text-slate-500">13:30 - 15:30</span>
                     </div>
                   </div>
-                  <span className="text-2xl font-black text-emerald-900">
-                    {dayTotals.totalComidaRaciones}
-                  </span>
+                  <div className="text-right">
+                    <span className="text-2xl font-black text-emerald-900 block">
+                      {dayTotals.totalComidaRaciones}C
+                    </span>
+                    {dayTotals.guestComidaTotal > 0 && (
+                      <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200">
+                        {dayTotals.resComidaTotal} Res + {dayTotals.guestComidaTotal} Inv
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-2 text-xs">
                   <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-emerald-100">
                     <span className="font-semibold text-slate-700">1er Turno (13:30):</span>
                     <span className="font-bold text-emerald-800 text-sm">
-                      {dayTotals.totalComida1} platos
+                      {dayTotals.totalComida1} platos {dayTotals.guestComida1 > 0 ? `(${dayTotals.resComida1} + ${dayTotals.guestComida1} Inv)` : ''}
                     </span>
                   </div>
 
                   <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-emerald-100">
                     <span className="font-semibold text-slate-700">2º Turno (14:45):</span>
                     <span className="font-bold text-amber-700 text-sm">
-                      {dayTotals.totalComida2} platos
+                      {dayTotals.totalComida2} platos {dayTotals.guestComida2 > 0 ? `(${dayTotals.resComida2} + ${dayTotals.guestComida2} Inv)` : ''}
                     </span>
                   </div>
 
                   <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-emerald-100">
                     <span className="font-semibold text-slate-700">Para llevar (Tupper):</span>
                     <span className="font-bold text-indigo-700 text-sm">
-                      {dayTotals.totalComidaTupper} tuppers
+                      {dayTotals.totalComidaTupper} tuppers {dayTotals.guestComidaTupper > 0 ? `(${dayTotals.resComidaTupper} + ${dayTotals.guestComidaTupper} Inv)` : ''}
                     </span>
                   </div>
                 </div>
               </div>
 
               <div className="pt-2 border-t border-emerald-200/60 text-xs text-emerald-900 font-medium">
-                🍲 Total comida: <strong>{dayTotals.totalComidaRaciones}</strong> ({dayTotals.resComidaTotal} residentes + {dayTotals.guestComidaTotal} invitados)
+                🍲 Total comida: <strong>{dayTotals.totalComidaRaciones}C</strong> ({dayTotals.guestComidaTotal > 0 ? `${dayTotals.resComidaTotal}C + ${dayTotals.guestComidaTotal} Inv` : `${dayTotals.resComidaTotal}C de 10 Residentes`})
               </div>
             </div>
 
@@ -440,37 +561,44 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                       <span className="text-xs text-slate-500">20:30 - 22:00</span>
                     </div>
                   </div>
-                  <span className="text-2xl font-black text-indigo-900">
-                    {dayTotals.totalCenaRaciones}
-                  </span>
+                  <div className="text-right">
+                    <span className="text-2xl font-black text-indigo-900 block">
+                      {dayTotals.totalCenaRaciones}Cn
+                    </span>
+                    {dayTotals.guestCenaTotal > 0 && (
+                      <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200">
+                        {dayTotals.resCenaTotal} Res + {dayTotals.guestCenaTotal} Inv
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-2 text-xs">
                   <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-indigo-100">
                     <span className="font-semibold text-slate-700">1er Turno (20:30):</span>
                     <span className="font-bold text-indigo-800 text-sm">
-                      {dayTotals.totalCena1} platos
+                      {dayTotals.totalCena1} platos {dayTotals.guestCena1 > 0 ? `(${dayTotals.resCena1} + ${dayTotals.guestCena1} Inv)` : ''}
                     </span>
                   </div>
 
                   <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-indigo-100">
                     <span className="font-semibold text-slate-700">2º Turno (21:30):</span>
                     <span className="font-bold text-amber-700 text-sm">
-                      {dayTotals.totalCena2} platos
+                      {dayTotals.totalCena2} platos {dayTotals.guestCena2 > 0 ? `(${dayTotals.resCena2} + ${dayTotals.guestCena2} Inv)` : ''}
                     </span>
                   </div>
 
                   <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-indigo-100">
                     <span className="font-semibold text-slate-700">Para llevar (Tupper):</span>
                     <span className="font-bold text-purple-700 text-sm">
-                      {dayTotals.totalCenaTupper} tuppers
+                      {dayTotals.totalCenaTupper} tuppers {dayTotals.guestCenaTupper > 0 ? `(${dayTotals.resCenaTupper} + ${dayTotals.guestCenaTupper} Inv)` : ''}
                     </span>
                   </div>
                 </div>
               </div>
 
               <div className="pt-2 border-t border-indigo-200/60 text-xs text-indigo-900 font-medium">
-                🌙 Total cena: <strong>{dayTotals.totalCenaRaciones}</strong> ({dayTotals.resCenaTotal} residentes + {dayTotals.guestCenaTotal} invitados)
+                🌙 Total cena: <strong>{dayTotals.totalCenaRaciones}Cn</strong> ({dayTotals.guestCenaTotal > 0 ? `${dayTotals.resCenaTotal}Cn + ${dayTotals.guestCenaTotal} Inv` : `${dayTotals.resCenaTotal}Cn de 10 Residentes`})
               </div>
             </div>
 
@@ -722,7 +850,10 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                       <td className="p-3 text-center font-bold text-amber-600">{t.totalCena2}</td>
                       <td className="p-3 text-center font-bold text-purple-600">{t.totalCenaTupper}</td>
                       <td className="p-3 text-center font-black text-slate-900 text-sm">
-                        {t.granTotalDia}
+                        <div>{t.granTotalDia}</div>
+                        <div className="text-[10px] text-slate-500 font-bold">
+                          {formatMealsSummary(t.totalDesayuno, t.totalComidaRaciones, t.totalCenaRaciones)}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -739,10 +870,15 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
       {kitchenMode === 'board' && (
         <div className="bg-slate-950 text-white rounded-3xl p-6 md:p-8 shadow-2xl border border-slate-800 space-y-6">
           <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-            <div>
-              <span className="text-amber-400 text-xs font-black uppercase tracking-widest">
-                Modo Pizarra de Cocina
-              </span>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-amber-400 text-xs font-black uppercase tracking-widest">
+                  Modo Pizarra de Cocina
+                </span>
+                <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 text-xs font-black px-2.5 py-0.5 rounded-full">
+                  {formatMealsSummary(dayTotals.totalDesayuno, dayTotals.totalComidaRaciones, dayTotals.totalCenaRaciones)}
+                </span>
+              </div>
               <h2 className="text-3xl font-black text-white capitalize">
                 {getDayFullFormatted(selectedDay)}
               </h2>
