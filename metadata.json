@@ -1,6 +1,6 @@
 {
-  "name": "Gestor de Comidas Residencia",
-  "description": "Planificador de comidas, tuppers, turnos, registro de invitados y agenda de administración matutina para los 10 residentes.",
+  "name": "Comidas Residencias Ucanca y Taiba",
+  "description": "Planificador de comidas, turnos, comensales invitados y agenda de administración para las residencias Ucanca (10 plazas) y Taiba (11 plazas).",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Users, Check, RotateCcw } from 'lucide-react';
-import { Resident } from '../types';
-import { INITIAL_RESIDENTS } from '../constants';
+import { Residencia, Resident } from '../types';
+import { RESIDENTS_UCANCA, RESIDENTS_TAIBA, RESIDENCIA_NAMES } from '../constants';
 
 interface ResidentManagerModalProps {
   isOpen: boolean;
   onClose: () => void;
   residents: Resident[];
+  activeResidencia?: Residencia;
   onSaveResidents: (residents: Resident[]) => void;
 }
 
@@ -14,9 +15,14 @@ export const ResidentManagerModal: React.FC<ResidentManagerModalProps> = ({
   isOpen,
   onClose,
   residents,
+  activeResidencia = 'ucanca',
   onSaveResidents,
 }) => {
   const [list, setList] = useState<Resident[]>(residents);
+
+  useEffect(() => {
+    setList(residents);
+  }, [residents, isOpen]);
 
   if (!isOpen) return null;
 
@@ -30,7 +36,8 @@ export const ResidentManagerModal: React.FC<ResidentManagerModalProps> = ({
   };
 
   const handleReset = () => {
-    setList(INITIAL_RESIDENTS);
+    const defaultList = activeResidencia === 'taiba' ? RESIDENTS_TAIBA : RESIDENTS_UCANCA;
+    setList(defaultList);
   };
 
   return (
@@ -43,8 +50,12 @@ export const ResidentManagerModal: React.FC<ResidentManagerModalProps> = ({
               <Users className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-lg font-black text-slate-900">Lista de Iniciales de Residentes</h3>
-              <p className="text-xs text-slate-500">10 residentes identificados por iniciales</p>
+              <h3 className="text-lg font-black text-slate-900">
+                Lista de Iniciales ({RESIDENCIA_NAMES[activeResidencia]})
+              </h3>
+              <p className="text-xs text-slate-500">
+                {list.length} residentes identificados por iniciales
+              </p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 rounded-xl">
@@ -62,7 +73,7 @@ export const ResidentManagerModal: React.FC<ResidentManagerModalProps> = ({
                 type="text"
                 value={res.name}
                 onChange={(e) => handleChangeName(res.id, e.target.value.toUpperCase())}
-                placeholder={`Iniciales (ej. ILC)`}
+                placeholder={`Iniciales`}
                 className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-black text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
               />
             </div>
@@ -76,7 +87,7 @@ export const ResidentManagerModal: React.FC<ResidentManagerModalProps> = ({
             className="px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 flex items-center gap-1"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>Restablecer 10 iniciales</span>
+            <span>Restablecer iniciales por defecto ({list.length})</span>
           </button>
 
           <div className="flex items-center gap-2">

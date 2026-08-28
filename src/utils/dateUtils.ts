@@ -143,6 +143,32 @@ export function getNextDayOfWeek(dayId: DayOfWeek): DayOfWeek {
 }
 
 /**
+ * Returns today's DayOfWeek based on the current system date.
+ * (0 = domingo, 1 = lunes, 2 = martes, 3 = miercoles, 4 = jueves, 5 = viernes, 6 = sabado)
+ */
+export function getCurrentDayOfWeek(baseDate: Date = new Date()): DayOfWeek {
+  const day = baseDate.getDay();
+  const dayMap: Record<number, DayOfWeek> = {
+    0: 'domingo',
+    1: 'lunes',
+    2: 'martes',
+    3: 'miercoles',
+    4: 'jueves',
+    5: 'viernes',
+    6: 'sabado',
+  };
+  return dayMap[day] || 'lunes';
+}
+
+/**
+ * Checks if a given DayOfWeek and weekOffset corresponds to today in the real calendar.
+ */
+export function isDayToday(dayId: DayOfWeek, weekOffset: number = 0, baseDate: Date = new Date()): boolean {
+  if (weekOffset !== 0) return false;
+  return dayId === getCurrentDayOfWeek(baseDate);
+}
+
+/**
  * Checks if a specific date (YYYY-MM-DD) falls within any registered absence for a resident.
  * Returns the matching AbsenceRecord if found, or undefined.
  */

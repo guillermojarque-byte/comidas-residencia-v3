@@ -1,14 +1,16 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { DAYS, INITIAL_RESIDENTS, createDefaultWeekSchedule } from '../constants';
-import { AbsenceRecord, AdminNote, DayOfWeek, GuestEntry, MealSelection, Resident, ResidentWeeklySchedule, SupabaseConfig } from '../types';
+import { DAYS, RESIDENTS_UCANCA, RESIDENTS_TAIBA, createDefaultWeekSchedule } from '../constants';
+import { AbsenceRecord, AdminNote, DayOfWeek, GuestEntry, MealSelection, Residencia, Resident, ResidentWeeklySchedule, SupabaseConfig } from '../types';
 import { formatDateToISO } from '../utils/dateUtils';
 
-const STORAGE_KEY_PREFERENCES = 'residencia_meal_preferences_v2';
 const STORAGE_KEY_CONFIG = 'residencia_supabase_config_v2';
-const STORAGE_KEY_RESIDENTS = 'residencia_residents_initials_v2';
-const STORAGE_KEY_GUESTS = 'residencia_guests_v2';
-const STORAGE_KEY_ADMIN_AGENDA = 'residencia_admin_agenda_v2';
-const STORAGE_KEY_ABSENCES = 'residencia_absences_v2';
+const STORAGE_KEY_RESIDENTS_UCANCA = 'residencia_residents_ucanca_v3';
+const STORAGE_KEY_RESIDENTS_TAIBA = 'residencia_residents_taiba_v3';
+const STORAGE_KEY_PREFERENCES_UCANCA = 'residencia_meal_preferences_ucanca_v3';
+const STORAGE_KEY_PREFERENCES_TAIBA = 'residencia_meal_preferences_taiba_v3';
+const STORAGE_KEY_GUESTS = 'residencia_guests_v3';
+const STORAGE_KEY_ADMIN_AGENDA = 'residencia_admin_agenda_v3';
+const STORAGE_KEY_ABSENCES = 'residencia_absences_v3';
 
 let supabaseInstance: SupabaseClient | null = null;
 let currentConfig: SupabaseConfig = {
@@ -20,9 +22,7 @@ let currentConfig: SupabaseConfig = {
 function sanitizeUrl(rawUrl: string): string {
   if (!rawUrl) return '';
   let url = rawUrl.trim();
-  // Strip trailing /rest/v1 or /rest/v1/
   url = url.replace(/\/rest\/v1\/?$/, '');
-  // Strip trailing slashes
   url = url.replace(/\/+$/, '');
   return url;
 }
@@ -123,40 +123,42 @@ export function saveSupabaseConfig(url: string, anonKey: string): { success: boo
 }
 
 // ----------------------------------------------------
-// RESIDENTS WITH INITIALS
+// RESIDENTS WITH INITIALS (PER RESIDENCY)
 // ----------------------------------------------------
-export function getStoredResidents(): Resident[] {
+export function getStoredResidents(residencia: Residencia = 'ucanca'): Resident[] {
+  const storageKey = residencia === 'ucanca' ? STORAGE_KEY_RESIDENTS_UCANCA : STORAGE_KEY_RESIDENTS_TAIBA;
+  const defaults = residencia === 'ucanca' ? RESIDENTS_UCANCA : RESIDENTS_TAIBA;
+
   try {
-    const data = localStorage.getItem(STORAGE_KEY_RESIDENTS);
+    const data = localStorage.getItem(storageKey);
     if (data) {
       const parsed: Resident[] = JSON.parse(data);
-      // Validate that it has 10 elements and uses the initials structure
-      if (Array.isArray(parsed) && parsed.length === 10 && parsed.some(r => r.name === 'ILC' || r.name === 'ASR')) {
-        const updated = parsed.map(r => r.name === 'MGB' ? { ...r, name: 'MFG' } : r);
-        if (JSON.stringify(updated) !== JSON.stringify(parsed)) {
-          localStorage.setItem(STORAGE_KEY_RESIDENTS, JSON.stringify(updated));
-        }
-        return updated;
+      if (Array.isArray(parsed) && parsed.length === defaults.length) {
+        return parsed.map((r) => ({ ...r, residencia }));
       }
     }
   } catch {
     // fallback
   }
-  // Store default 10 initials
-  localStorage.setItem(STORAGE_KEY_RESIDENTS, JSON.stringify(INITIAL_RESIDENTS));
-  return INITIAL_RESIDENTS;
+
+  localStorage.setItem(storageKey, JSON.stringify(defaults));
+  return defaults;
 }
 
-export function saveStoredResidents(residents: Resident[]) {
-  localStorage.setItem(STORAGE_KEY_RESIDENTS, JSON.stringify(residents));
+export function saveStoredResidents(residents: Resident[], residencia: Residencia = 'ucanca') {
+  const storageKey = residencia === 'ucanca' ? STORAGE_KEY_RESIDENTS_UCANCA : STORAGE_KEY_RESIDENTS_TAIBA;
+  localStorage.setItem(storageKey, JSON.stringify(residents));
 }
 
 // ----------------------------------------------------
-// LOCAL STORAGE RESIDENT PREFERENCES
+// LOCAL STORAGE RESIDENT PREFERENCES (PER RESIDENCY)
 // ----------------------------------------------------
-export function getLocalPreferences(): Record<number, ResidentWeeklySchedule> {
+export function getLocalPreferences(residencia: Residencia = 'ucanca'): Record<number, ResidentWeeklySchedule> {
+  const storageKey = residencia === 'ucanca' ? STORAGE_KEY_PREFERENCES_UCANCA : STORAGE_KEY_PREFERENCES_TAIBA;
+  const initialResidents = residencia === 'ucanca' ? RESIDENTS_UCANCA : RESIDENTS_TAIBA;
+
   try {
-    const data = localStorage.getItem(STORAGE_KEY_PREFERENCES);
+    const data = localStorage.getItem(storageKey);
     if (data) {
       return JSON.parse(data);
     }
@@ -164,29 +166,32 @@ export function getLocalPreferences(): Record<number, ResidentWeeklySchedule> {
     // fallback
   }
 
-  // Generate seed sample data for the 10 resident initials
   const initialData: Record<number, ResidentWeeklySchedule> = {};
-  INITIAL_RESIDENTS.forEach((res) => {
+  initialResidents.forEach((res) => {
     initialData[res.id] = createDefaultWeekSchedule();
   });
 
-  localStorage.setItem(STORAGE_KEY_PREFERENCES, JSON.stringify(initialData));
+  localStorage.setItem(storageKey, JSON.stringify(initialData));
   return initialData;
 }
 
-export function saveLocalPreferences(data: Record<number, ResidentWeeklySchedule>) {
-  localStorage.setItem(STORAGE_KEY_PREFERENCES, JSON.stringify(data));
+export function saveLocalPreferences(residencia: Residencia, data: Record<number, ResidentWeeklySchedule>) {
+  const storageKey = residencia === 'ucanca' ? STORAGE_KEY_PREFERENCES_UCANCA : STORAGE_KEY_PREFERENCES_TAIBA;
+  localStorage.setItem(storageKey, JSON.stringify(data));
 }
 
 // ----------------------------------------------------
 // GUEST ENTRIES (COMENSALES EXTRA)
 // ----------------------------------------------------
-export function getLocalGuests(): GuestEntry[] {
+export function getLocalGuests(residencia?: Residencia): GuestEntry[] {
   try {
     const data = localStorage.getItem(STORAGE_KEY_GUESTS);
     if (data) {
-      const parsed = JSON.parse(data);
-      if (Array.isArray(parsed)) return parsed;
+      const parsed: GuestEntry[] = JSON.parse(data);
+      if (Array.isArray(parsed)) {
+        if (!residencia) return parsed;
+        return parsed.filter((g) => (g.residencia || 'ucanca') === residencia);
+      }
     }
   } catch {
     // fallback
@@ -198,16 +203,21 @@ export function saveLocalGuests(guests: GuestEntry[]) {
   localStorage.setItem(STORAGE_KEY_GUESTS, JSON.stringify(guests));
 }
 
-export async function loadAllGuests(): Promise<{
+export async function loadAllGuests(residencia?: Residencia): Promise<{
   data: GuestEntry[];
   source: 'supabase' | 'local';
 }> {
   if (supabaseInstance && currentConfig.isConfigured) {
     try {
-      const { data, error } = await supabaseInstance.from('guest_entries').select('*');
+      let query = supabaseInstance.from('guest_entries').select('*');
+      if (residencia) {
+        query = query.eq('residencia', residencia);
+      }
+      const { data, error } = await query;
       if (!error && data) {
         const mapped: GuestEntry[] = data.map((row: Record<string, unknown>) => ({
           id: String(row.id),
+          residencia: (row.residencia as Residencia) || 'ucanca',
           day: row.day as DayOfWeek,
           mealType: row.meal_type as GuestEntry['mealType'],
           serviceMode: row.service_mode as GuestEntry['serviceMode'],
@@ -217,38 +227,47 @@ export async function loadAllGuests(): Promise<{
           notes: String(row.notes || ''),
           createdAt: String(row.created_at || ''),
         }));
-        saveLocalGuests(mapped);
+        
+        // Merge with existing local guests for other residencies if scoped
+        const currentAll = getLocalGuests();
+        const otherResGuests = residencia ? currentAll.filter((g) => g.residencia !== residencia) : [];
+        saveLocalGuests([...otherResGuests, ...mapped]);
+
         return { data: mapped, source: 'supabase' };
       }
     } catch {
       // ignore, use fallback
     }
   }
-  return { data: getLocalGuests(), source: 'local' };
+  return { data: getLocalGuests(residencia), source: 'local' };
 }
 
-export async function saveGuestEntry(guest: GuestEntry): Promise<{ success: boolean; source: 'supabase' | 'local' }> {
+export async function saveGuestEntry(guest: GuestEntry, residencia?: Residencia): Promise<{ success: boolean; source: 'supabase' | 'local' }> {
+  const targetRes = guest.residencia || residencia || 'ucanca';
+  const entry: GuestEntry = { ...guest, residencia: targetRes };
+
   // Update local
   const current = getLocalGuests();
-  const index = current.findIndex(g => g.id === guest.id);
+  const index = current.findIndex((g) => g.id === entry.id);
   if (index >= 0) {
-    current[index] = guest;
+    current[index] = entry;
   } else {
-    current.push(guest);
+    current.push(entry);
   }
   saveLocalGuests(current);
 
   if (supabaseInstance && currentConfig.isConfigured) {
     try {
       const payload = {
-        id: guest.id,
-        day: guest.day,
-        meal_type: guest.mealType,
-        service_mode: guest.serviceMode,
-        count: guest.count,
-        host_name: guest.hostName,
-        menu_type: guest.menuType,
-        notes: guest.notes || '',
+        id: entry.id,
+        residencia: entry.residencia,
+        day: entry.day,
+        meal_type: entry.mealType,
+        service_mode: entry.serviceMode,
+        count: entry.count,
+        host_name: entry.hostName,
+        menu_type: entry.menuType,
+        notes: entry.notes || '',
         updated_at: new Date().toISOString(),
       };
       await supabaseInstance.from('guest_entries').upsert(payload, { onConflict: 'id' });
@@ -261,13 +280,17 @@ export async function saveGuestEntry(guest: GuestEntry): Promise<{ success: bool
   return { success: true, source: 'local' };
 }
 
-export async function deleteGuestEntry(guestId: string): Promise<{ success: boolean; source: 'supabase' | 'local' }> {
-  const current = getLocalGuests().filter(g => g.id !== guestId);
+export async function deleteGuestEntry(guestId: string, residencia?: Residencia): Promise<{ success: boolean; source: 'supabase' | 'local' }> {
+  const current = getLocalGuests().filter((g) => g.id !== guestId);
   saveLocalGuests(current);
 
   if (supabaseInstance && currentConfig.isConfigured) {
     try {
-      await supabaseInstance.from('guest_entries').delete().eq('id', guestId);
+      let query = supabaseInstance.from('guest_entries').delete().eq('id', guestId);
+      if (residencia) {
+        query = query.eq('residencia', residencia);
+      }
+      await query;
       return { success: true, source: 'supabase' };
     } catch {
       return { success: true, source: 'local' };
@@ -280,19 +303,24 @@ export async function deleteGuestEntry(guestId: string): Promise<{ success: bool
 // ----------------------------------------------------
 // UNIFIED LOAD PREFERENCES (Supabase -> Local)
 // ----------------------------------------------------
-export async function loadAllPreferences(): Promise<{
+export async function loadAllPreferences(residencia: Residencia = 'ucanca'): Promise<{
   data: Record<number, ResidentWeeklySchedule>;
   source: 'supabase' | 'local';
   error?: string;
 }> {
+  const initialResidents = residencia === 'ucanca' ? RESIDENTS_UCANCA : RESIDENTS_TAIBA;
+
   if (supabaseInstance && currentConfig.isConfigured) {
     try {
-      const { data, error } = await supabaseInstance.from('meal_preferences').select('*');
+      const { data, error } = await supabaseInstance
+        .from('meal_preferences')
+        .select('*')
+        .eq('residencia', residencia);
 
       if (error) {
         console.warn('Error al cargar de Supabase, usando datos locales:', error);
         return {
-          data: getLocalPreferences(),
+          data: getLocalPreferences(residencia),
           source: 'local',
           error: `Error Supabase: ${error.message}`,
         };
@@ -301,7 +329,7 @@ export async function loadAllPreferences(): Promise<{
       if (data && data.length > 0) {
         const schedules: Record<number, ResidentWeeklySchedule> = {};
 
-        INITIAL_RESIDENTS.forEach((res) => {
+        initialResidents.forEach((res) => {
           schedules[res.id] = createDefaultWeekSchedule();
         });
 
@@ -323,7 +351,7 @@ export async function loadAllPreferences(): Promise<{
           }
         });
 
-        saveLocalPreferences(schedules);
+        saveLocalPreferences(residencia, schedules);
         return { data: schedules, source: 'supabase' };
       }
     } catch (err: unknown) {
@@ -331,7 +359,7 @@ export async function loadAllPreferences(): Promise<{
     }
   }
 
-  return { data: getLocalPreferences(), source: 'local' };
+  return { data: getLocalPreferences(residencia), source: 'local' };
 }
 
 // Save single day preference
@@ -339,20 +367,22 @@ export async function saveDayPreference(
   residentId: number,
   residentName: string,
   day: DayOfWeek,
-  selection: MealSelection
+  selection: MealSelection,
+  residencia: Residencia = 'ucanca'
 ): Promise<{ success: boolean; source: 'supabase' | 'local'; error?: string }> {
-  const localData = getLocalPreferences();
+  const localData = getLocalPreferences(residencia);
   if (!localData[residentId]) {
     localData[residentId] = createDefaultWeekSchedule();
   }
   localData[residentId][day] = { ...selection };
-  saveLocalPreferences(localData);
+  saveLocalPreferences(residencia, localData);
 
   if (supabaseInstance && currentConfig.isConfigured) {
     try {
-      const rowId = `${residentId}_${day}`;
+      const rowId = `${residencia}_${residentId}_${day}`;
       const payload = {
         id: rowId,
+        residencia: residencia,
         resident_id: residentId,
         resident_name: residentName,
         day: day,
@@ -433,6 +463,7 @@ export async function testSupabaseConnection(
 const DEFAULT_INITIAL_ADMIN_NOTES: AdminNote[] = [
   {
     id: 'note_init_1',
+    residencia: 'ucanca',
     title: 'Ajuste de horario de cena del jueves',
     description: 'Varios residentes tienen examen y partido universitario. Solicitar retrasar 30 minutos el segundo turno de cena o dejar los platos preparados.',
     category: 'horarios',
@@ -444,6 +475,7 @@ const DEFAULT_INITIAL_ADMIN_NOTES: AdminNote[] = [
   },
   {
     id: 'note_init_2',
+    residencia: 'ucanca',
     title: 'Revisión del termo de agua caliente en planta 2',
     description: 'Por las mañanas baja la presión y sale templada a primera hora. Pedir que avisen al servicio técnico de fontanería.',
     category: 'mantenimiento',
@@ -453,41 +485,64 @@ const DEFAULT_INITIAL_ADMIN_NOTES: AdminNote[] = [
     targetDate: formatDateToISO(new Date()),
     createdAt: new Date(Date.now() - 3600000 * 12).toISOString(),
   },
+  {
+    id: 'note_init_3',
+    residencia: 'taiba',
+    title: 'Solicitud de tuppers adicionales para salida deportiva',
+    description: 'El sábado 4 residentes participan en competición deportiva interuniversitaria.',
+    category: 'cocina',
+    author: 'MGS',
+    priority: 'normal',
+    status: 'pendiente',
+    targetDate: formatDateToISO(new Date()),
+    createdAt: new Date(Date.now() - 3600000 * 6).toISOString(),
+  },
 ];
 
-export function getLocalAdminNotes(): AdminNote[] {
+export function getLocalAdminNotes(residencia?: Residencia): AdminNote[] {
   try {
     const data = localStorage.getItem(STORAGE_KEY_ADMIN_AGENDA);
     if (data) {
-      const parsed = JSON.parse(data);
-      if (Array.isArray(parsed)) return parsed;
+      const parsed: AdminNote[] = JSON.parse(data);
+      if (Array.isArray(parsed)) {
+        if (!residencia) return parsed;
+        return parsed.filter((n) => (n.residencia || 'ucanca') === residencia);
+      }
     }
   } catch {
     // fallback
   }
-  // Store default sample notes with today's date
+  // Store default sample notes
   localStorage.setItem(STORAGE_KEY_ADMIN_AGENDA, JSON.stringify(DEFAULT_INITIAL_ADMIN_NOTES));
-  return DEFAULT_INITIAL_ADMIN_NOTES;
+  if (!residencia) return DEFAULT_INITIAL_ADMIN_NOTES;
+  return DEFAULT_INITIAL_ADMIN_NOTES.filter((n) => n.residencia === residencia);
 }
 
 export function saveLocalAdminNotes(notes: AdminNote[]) {
   localStorage.setItem(STORAGE_KEY_ADMIN_AGENDA, JSON.stringify(notes));
 }
 
-export async function loadAllAdminNotes(): Promise<{
+export async function loadAllAdminNotes(residencia?: Residencia): Promise<{
   data: AdminNote[];
   source: 'supabase' | 'local';
 }> {
   if (supabaseInstance && currentConfig.isConfigured) {
     try {
-      const { data, error } = await supabaseInstance
+      let query = supabaseInstance
         .from('admin_agenda_notes')
         .select('*')
         .order('created_at', { ascending: false });
 
+      if (residencia) {
+        query = query.eq('residencia', residencia);
+      }
+
+      const { data, error } = await query;
+
       if (!error && data && data.length >= 0) {
         const mapped: AdminNote[] = data.map((row: Record<string, unknown>) => ({
           id: String(row.id),
+          residencia: (row.residencia as Residencia) || 'ucanca',
           title: String(row.title || ''),
           description: String(row.description || ''),
           category: (row.category as AdminNote['category']) || 'general',
@@ -500,42 +555,49 @@ export async function loadAllAdminNotes(): Promise<{
           calledInAt: row.called_in_at ? String(row.called_in_at) : undefined,
           responseNotes: row.response_notes ? String(row.response_notes) : undefined,
         }));
-        saveLocalAdminNotes(mapped);
+        
+        const currentAll = getLocalAdminNotes();
+        const otherNotes = residencia ? currentAll.filter((n) => n.residencia !== residencia) : [];
+        saveLocalAdminNotes([...otherNotes, ...mapped]);
+
         return { data: mapped, source: 'supabase' };
       }
     } catch {
       // ignore, fallback to local
     }
   }
-  return { data: getLocalAdminNotes(), source: 'local' };
+  return { data: getLocalAdminNotes(residencia), source: 'local' };
 }
 
-export async function saveAdminNote(note: AdminNote): Promise<{ success: boolean; source: 'supabase' | 'local' }> {
-  // Update local state
+export async function saveAdminNote(note: AdminNote, residencia?: Residencia): Promise<{ success: boolean; source: 'supabase' | 'local' }> {
+  const targetRes = note.residencia || residencia || 'ucanca';
+  const entry: AdminNote = { ...note, residencia: targetRes };
+
   const current = getLocalAdminNotes();
-  const index = current.findIndex((n) => n.id === note.id);
+  const index = current.findIndex((n) => n.id === entry.id);
   if (index >= 0) {
-    current[index] = { ...note, updatedAt: new Date().toISOString() };
+    current[index] = { ...entry, updatedAt: new Date().toISOString() };
   } else {
-    current.unshift(note);
+    current.unshift(entry);
   }
   saveLocalAdminNotes(current);
 
   if (supabaseInstance && currentConfig.isConfigured) {
     try {
       const payload = {
-        id: note.id,
-        title: note.title,
-        description: note.description || '',
-        category: note.category,
-        author: note.author,
-        priority: note.priority,
-        status: note.status,
-        target_date: note.targetDate || formatDateToISO(new Date()),
-        created_at: note.createdAt,
+        id: entry.id,
+        residencia: entry.residencia,
+        title: entry.title,
+        description: entry.description || '',
+        category: entry.category,
+        author: entry.author,
+        priority: entry.priority,
+        status: entry.status,
+        target_date: entry.targetDate || formatDateToISO(new Date()),
+        created_at: entry.createdAt,
         updated_at: new Date().toISOString(),
-        called_in_at: note.calledInAt || null,
-        response_notes: note.responseNotes || null,
+        called_in_at: entry.calledInAt || null,
+        response_notes: entry.responseNotes || null,
       };
       await supabaseInstance.from('admin_agenda_notes').upsert(payload, { onConflict: 'id' });
       return { success: true, source: 'supabase' };
@@ -547,13 +609,17 @@ export async function saveAdminNote(note: AdminNote): Promise<{ success: boolean
   return { success: true, source: 'local' };
 }
 
-export async function deleteAdminNote(noteId: string): Promise<{ success: boolean; source: 'supabase' | 'local' }> {
+export async function deleteAdminNote(noteId: string, residencia?: Residencia): Promise<{ success: boolean; source: 'supabase' | 'local' }> {
   const current = getLocalAdminNotes().filter((n) => n.id !== noteId);
   saveLocalAdminNotes(current);
 
   if (supabaseInstance && currentConfig.isConfigured) {
     try {
-      await supabaseInstance.from('admin_agenda_notes').delete().eq('id', noteId);
+      let query = supabaseInstance.from('admin_agenda_notes').delete().eq('id', noteId);
+      if (residencia) {
+        query = query.eq('residencia', residencia);
+      }
+      await query;
       return { success: true, source: 'supabase' };
     } catch {
       return { success: true, source: 'local' };
@@ -566,12 +632,15 @@ export async function deleteAdminNote(noteId: string): Promise<{ success: boolea
 // ----------------------------------------------------
 // GESTIÓN DE AUSENCIAS / VIAJES POR RANGO DE FECHAS
 // ----------------------------------------------------
-export function getLocalAbsences(): AbsenceRecord[] {
+export function getLocalAbsences(residencia?: Residencia): AbsenceRecord[] {
   try {
     const data = localStorage.getItem(STORAGE_KEY_ABSENCES);
     if (data) {
-      const parsed = JSON.parse(data);
-      if (Array.isArray(parsed)) return parsed;
+      const parsed: AbsenceRecord[] = JSON.parse(data);
+      if (Array.isArray(parsed)) {
+        if (!residencia) return parsed;
+        return parsed.filter((a) => (a.residencia || 'ucanca') === residencia);
+      }
     }
   } catch {
     // fallback
@@ -583,20 +652,27 @@ export function saveLocalAbsences(absences: AbsenceRecord[]) {
   localStorage.setItem(STORAGE_KEY_ABSENCES, JSON.stringify(absences));
 }
 
-export async function loadAllAbsences(): Promise<{
+export async function loadAllAbsences(residencia?: Residencia): Promise<{
   data: AbsenceRecord[];
   source: 'supabase' | 'local';
 }> {
   if (supabaseInstance && currentConfig.isConfigured) {
     try {
-      const { data, error } = await supabaseInstance
+      let query = supabaseInstance
         .from('resident_absences')
         .select('*')
         .order('start_date', { ascending: true });
 
+      if (residencia) {
+        query = query.eq('residencia', residencia);
+      }
+
+      const { data, error } = await query;
+
       if (!error && data) {
         const mapped: AbsenceRecord[] = data.map((row: Record<string, unknown>) => ({
           id: String(row.id),
+          residencia: (row.residencia as Residencia) || 'ucanca',
           residentId: Number(row.resident_id),
           residentName: String(row.resident_name || ''),
           startDate: String(row.start_date || ''),
@@ -604,35 +680,43 @@ export async function loadAllAbsences(): Promise<{
           reason: String(row.reason || ''),
           createdAt: String(row.created_at || ''),
         }));
-        saveLocalAbsences(mapped);
+
+        const currentAll = getLocalAbsences();
+        const otherAbsences = residencia ? currentAll.filter((a) => a.residencia !== residencia) : [];
+        saveLocalAbsences([...otherAbsences, ...mapped]);
+
         return { data: mapped, source: 'supabase' };
       }
     } catch {
       // fallback to local
     }
   }
-  return { data: getLocalAbsences(), source: 'local' };
+  return { data: getLocalAbsences(residencia), source: 'local' };
 }
 
-export async function saveAbsence(absence: AbsenceRecord): Promise<{ success: boolean; source: 'supabase' | 'local' }> {
+export async function saveAbsence(absence: AbsenceRecord, residencia?: Residencia): Promise<{ success: boolean; source: 'supabase' | 'local' }> {
+  const targetRes = absence.residencia || residencia || 'ucanca';
+  const entry: AbsenceRecord = { ...absence, residencia: targetRes };
+
   const current = getLocalAbsences();
-  const index = current.findIndex((a) => a.id === absence.id);
+  const index = current.findIndex((a) => a.id === entry.id);
   if (index >= 0) {
-    current[index] = absence;
+    current[index] = entry;
   } else {
-    current.push(absence);
+    current.push(entry);
   }
   saveLocalAbsences(current);
 
   if (supabaseInstance && currentConfig.isConfigured) {
     try {
       const payload = {
-        id: absence.id,
-        resident_id: absence.residentId,
-        resident_name: absence.residentName,
-        start_date: absence.startDate,
-        end_date: absence.endDate,
-        reason: absence.reason || '',
+        id: entry.id,
+        residencia: entry.residencia,
+        resident_id: entry.residentId,
+        resident_name: entry.residentName,
+        start_date: entry.startDate,
+        end_date: entry.endDate,
+        reason: entry.reason || '',
         updated_at: new Date().toISOString(),
       };
       await supabaseInstance.from('resident_absences').upsert(payload, { onConflict: 'id' });
@@ -645,13 +729,17 @@ export async function saveAbsence(absence: AbsenceRecord): Promise<{ success: bo
   return { success: true, source: 'local' };
 }
 
-export async function deleteAbsence(absenceId: string): Promise<{ success: boolean; source: 'supabase' | 'local' }> {
+export async function deleteAbsence(absenceId: string, residencia?: Residencia): Promise<{ success: boolean; source: 'supabase' | 'local' }> {
   const current = getLocalAbsences().filter((a) => a.id !== absenceId);
   saveLocalAbsences(current);
 
   if (supabaseInstance && currentConfig.isConfigured) {
     try {
-      await supabaseInstance.from('resident_absences').delete().eq('id', absenceId);
+      let query = supabaseInstance.from('resident_absences').delete().eq('id', absenceId);
+      if (residencia) {
+        query = query.eq('residencia', residencia);
+      }
+      await query;
       return { success: true, source: 'supabase' };
     } catch {
       return { success: true, source: 'local' };
@@ -660,4 +748,5 @@ export async function deleteAbsence(absenceId: string): Promise<{ success: boole
 
   return { success: true, source: 'local' };
 }
+
 

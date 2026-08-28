@@ -23,7 +23,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { DAYS, GUEST_MENU_LABELS, GUEST_SERVICE_LABELS } from '../constants';
-import { AbsenceRecord, DayOfWeek, GuestEntry, GuestMealType, Resident, ResidentWeeklySchedule } from '../types';
+import { AbsenceRecord, DayOfWeek, GuestEntry, GuestMealType, Residencia, Resident, ResidentWeeklySchedule } from '../types';
 import { 
   getDayShortFormatted, 
   getDayFullFormatted, 
@@ -31,9 +31,11 @@ import {
   getNextDayOfWeek, 
   formatMealsSummary,
   isDayInAbsence,
+  isDayToday,
   getWeekRangeLabel
 } from '../utils/dateUtils';
 import { WeekNavigator } from './WeekNavigator';
+import { RESIDENCIA_BADGES } from '../constants';
 
 interface KitchenViewProps {
   residents: Resident[];
@@ -51,6 +53,7 @@ interface KitchenViewProps {
   onOpenAddGuestModal: (day: DayOfWeek, mealType?: GuestMealType) => void;
   onDeleteGuest: (id: string) => void;
   syncSource: 'supabase' | 'local';
+  activeResidencia?: Residencia;
 }
 
 export const KitchenView: React.FC<KitchenViewProps> = ({
@@ -69,8 +72,10 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
   onOpenAddGuestModal,
   onDeleteGuest,
   syncSource,
+  activeResidencia = 'ucanca',
 }) => {
   const [kitchenMode, setKitchenMode] = useState<'day' | 'week' | 'board'>('day');
+  const resBadge = RESIDENCIA_BADGES[activeResidencia];
 
   // Compute daily totals including guests and factoring in absences
   const computeDayTotals = (day: DayOfWeek, offset: number = weekOffset) => {
@@ -233,12 +238,15 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
               <Utensils className="w-3.5 h-3.5" />
               Panel de Cocina y Pedidos
             </span>
+            <span className={`text-[11px] font-black px-2 py-0.5 rounded-md uppercase ${resBadge.tagColor}`}>
+              {resBadge.name}
+            </span>
             <span className="text-xs text-slate-500 font-medium">
-              10 Residentes + Comensales Invitados
+              {residents.length} Residentes + Comensales Invitados
             </span>
           </div>
           <h2 className="text-xl font-extrabold text-slate-900 mt-1">
-            Recuento Nominal de Raciones y Turnos
+            Recuento Nominal de Raciones y Turnos — Residencia {resBadge.name}
           </h2>
         </div>
 
@@ -316,6 +324,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
         <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
           {DAYS.map((day) => {
             const isSelected = day.id === selectedDay;
+            const isToday = isDayToday(day.id, weekOffset);
             const totals = computeDayTotals(day.id);
             const dateOnly = getDayDateOnly(day.id, weekOffset);
             const summaryBadge = formatMealsSummary(totals.totalDesayuno, totals.totalComidaRaciones, totals.totalCenaRaciones);
@@ -324,16 +333,23 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
               <button
                 key={day.id}
                 onClick={() => onSelectDay(day.id)}
-                className={`p-2.5 rounded-xl text-center transition-all border flex flex-col items-center justify-between gap-1.5 ${
+                className={`p-2.5 rounded-xl text-center transition-all border flex flex-col items-center justify-between gap-1.5 relative ${
                   isSelected
                     ? 'bg-slate-900 text-white border-slate-900 shadow-md ring-2 ring-amber-500/50'
+                    : isToday
+                    ? 'bg-amber-50/60 text-slate-800 border-amber-300 ring-1 ring-amber-400/40'
                     : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-200'
                 }`}
               >
+                {isToday && (
+                  <span className="absolute -top-2 left-1/2 -translate-x-1/2 px-1.5 py-0.2 bg-amber-600 text-white text-[9px] font-black rounded-full shadow-2xs tracking-wide">
+                    HOY
+                  </span>
+                )}
                 <div className="flex items-center justify-between w-full">
                   <div className="flex items-center gap-1">
                     <span className="text-[11px] font-bold">{day.short}</span>
-                    <span className={`text-[10px] font-semibold ${isSelected ? 'text-amber-300' : 'text-slate-500'}`}>
+                    <span className={`text-[10px] font-semibold ${isSelected ? 'text-amber-300' : isToday ? 'text-amber-800' : 'text-slate-500'}`}>
                       {dateOnly}
                     </span>
                   </div>
@@ -349,7 +365,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                 </span>
 
                 <div className="w-full pt-1.5 border-t border-slate-100/20 text-[10px] font-black flex items-center justify-center">
-                  <span className={isSelected ? 'text-amber-300' : 'text-slate-700'} title="Desayunos · Comidas · Cenas">
+                  <span className={isSelected ? 'text-amber-300' : isToday ? 'text-amber-900' : 'text-slate-700'} title="Desayunos · Comidas · Cenas">
                     {summaryBadge}
                   </span>
                 </div>
@@ -534,7 +550,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
               </div>
 
               <div className="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1 rounded-xl">
-                10 Residentes ({10 - dayTotals.resAbsentCount} presentes / {dayTotals.resAbsentCount} ausentes)
+                {residents.length} Residentes ({residents.length - dayTotals.resAbsentCount} presentes / {dayTotals.resAbsentCount} ausentes)
               </div>
             </div>
 

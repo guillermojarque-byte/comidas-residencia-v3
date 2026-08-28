@@ -27,6 +27,7 @@ import {
   getDayFullFormatted, 
   getDayDateOnly, 
   isDayInAbsence,
+  isDayToday,
   formatDateDDMMYY,
   parseISODate,
   getWeekRangeLabel
@@ -235,7 +236,7 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
                   <span>Viajes / Ausencias</span>
                 </button>
                 <span className="text-xs text-slate-500 font-semibold bg-slate-100 px-2 py-0.5 rounded-full">
-                  10 Residentes
+                  {residents.length} Residentes
                 </span>
               </div>
             </div>
@@ -386,6 +387,7 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
         <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
           {DAYS.map((day) => {
             const isSelected = day.id === selectedDay;
+            const isToday = isDayToday(day.id, weekOffset);
             const dayPref = weeklySchedule[day.id];
             const formattedDate = getDayDateOnly(day.id, weekOffset);
             const isAbsent = isDayInAbsence(day.id, weekOffset, absences, currentResident.id);
@@ -399,12 +401,19 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
                     ? 'bg-slate-900 text-white border-slate-900 shadow-md ring-2 ring-emerald-500/50'
                     : isAbsent
                     ? 'bg-rose-50/70 text-rose-800 border-rose-200'
+                    : isToday
+                    ? 'bg-emerald-50/70 text-slate-800 border-emerald-300 ring-1 ring-emerald-400/40'
                     : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-200'
                 }`}
               >
+                {isToday && (
+                  <span className="absolute -top-2 left-1/2 -translate-x-1/2 px-1.5 py-0.2 bg-emerald-600 text-white text-[9px] font-black rounded-full shadow-2xs tracking-wide">
+                    HOY
+                  </span>
+                )}
                 <div className="flex items-center gap-1">
                   <span className="text-xs font-bold block">{day.short}</span>
-                  <span className={`text-[11px] font-semibold ${isSelected ? 'text-emerald-300' : isAbsent ? 'text-rose-700' : 'text-slate-500'}`}>
+                  <span className={`text-[11px] font-semibold ${isSelected ? 'text-emerald-300' : isAbsent ? 'text-rose-700' : isToday ? 'text-emerald-700' : 'text-slate-500'}`}>
                     {formattedDate}
                   </span>
                 </div>

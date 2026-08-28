@@ -34,19 +34,32 @@ import {
   GuestEntry, 
   GuestMealType, 
   MealSelection, 
+  Residencia,
   Resident, 
   ResidentWeeklySchedule, 
   SupabaseConfig 
 } from './types';
-import { DAYS, createDefaultWeekSchedule } from './constants';
-import { getDayISOString, isDayInAbsence } from './utils/dateUtils';
+import { DAYS, createDefaultWeekSchedule, RESIDENCIA_NAMES } from './constants';
+import { getCurrentDayOfWeek, getDayISOString, isDayInAbsence } from './utils/dateUtils';
 import { Users } from 'lucide-react';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'resident' | 'kitchen' | 'guests' | 'admin_agenda'>('resident');
-  const [residents, setResidents] = useState<Resident[]>(getStoredResidents());
-  const [selectedResidentId, setSelectedResidentId] = useState<number>(1);
-  const [selectedDay, setSelectedDay] = useState<DayOfWeek>('lunes');
+  
+  const [activeResidencia, setActiveResidencia] = useState<Residencia>(() => {
+    try {
+      const saved = localStorage.getItem('comidas_active_residencia');
+      if (saved === 'taiba' || saved === 'ucanca') return saved;
+    } catch (e) {}
+    return 'ucanca';
+  });
+
+  const [residents, setResidents] = useState<Resident[]>(() => getStoredResidents(activeResidencia));
+  const [selectedResidentId, setSelectedResidentId] = useState<number>(() => {
+    const initialRes = getStoredResidents(activeResidencia);
+    return initialRes[0]?.id || 1;
+  });
+  const [selectedDay, setSelectedDay] = useState<DayOfWeek>(() => getCurrentDayOfWeek());
   const [weekOffset, setWeekOffset] = useState<number>(0);
   
   const [allPreferences, setAllPreferences] = useState<Record<number, ResidentWeeklySchedule>>({});
@@ -80,40 +93,57 @@ export default function App() {
     mealType: GuestMealType;
     hostName: string;
   }>({
-    day: 'lunes',
+    day: getCurrentDayOfWeek(),
     mealType: 'comida',
     hostName: 'ILC',
   });
+
+  // Load data for active residence
+  const loadResidencyData = async (residencia: Residencia) => {
+    setIsLoading(true);
+    const curResidents = getStoredResidents(residencia);
+    setResidents(curResidents);
+    setSelectedResidentId(curResidents[0]?.id || 1);
+
+    const [resPref, resGuests, resNotes, resAbsences] = await Promise.all([
+      loadAllPreferences(residencia),
+      loadAllGuests(residencia),
+      loadAllAdminNotes(residencia),
+      loadAllAbsences(residencia),
+    ]);
+
+    setAllPreferences(resPref.data);
+    setSyncSource(resPref.source);
+    setGuests(resGuests.data);
+    setAdminNotes(resNotes.data);
+    setAbsences(resAbsences.data);
+    setIsLoading(false);
+  };
+
+  // Switch residence handler
+  const handleSelectResidencia = (newRes: Residencia) => {
+    if (newRes === activeResidencia) return;
+    setActiveResidencia(newRes);
+    try {
+      localStorage.setItem('comidas_active_residencia', newRes);
+    } catch (e) {}
+    loadResidencyData(newRes);
+  };
 
   // Initialize and load
   useEffect(() => {
     const config = initializeSupabaseConfig();
     setSupabaseConfig(config);
-
-    const loadData = async () => {
-      setIsLoading(true);
-      const [resPref, resGuests, resNotes, resAbsences] = await Promise.all([
-        loadAllPreferences(),
-        loadAllGuests(),
-        loadAllAdminNotes(),
-        loadAllAbsences(),
-      ]);
-
-      setAllPreferences(resPref.data);
-      setSyncSource(resPref.source);
-      setGuests(resGuests.data);
-      setAdminNotes(resNotes.data);
-      setAbsences(resAbsences.data);
-      setIsLoading(false);
-    };
-
-    loadData();
+    loadResidencyData(activeResidencia);
   }, []);
 
   // Week navigation controls
   const handlePreviousWeek = () => setWeekOffset((prev) => prev - 1);
   const handleNextWeek = () => setWeekOffset((prev) => prev + 1);
-  const handleCurrentWeek = () => setWeekOffset(0);
+  const handleCurrentWeek = () => {
+    setWeekOffset(0);
+    setSelectedDay(getCurrentDayOfWeek());
+  };
   const handleSetWeekOffset = (offset: number) => setWeekOffset(offset);
 
   // Current resident schedule
@@ -137,7 +167,7 @@ export default function App() {
     });
 
     setIsSaving(true);
-    const saveRes = await saveDayPreference(selectedResidentId, residentName, day, selection);
+    const saveRes = await saveDayPreference(selectedResidentId, residentName, day, selection, activeResidencia);
     setSyncSource(saveRes.source);
     setIsSaving(false);
   };
@@ -211,9 +241,9 @@ export default function App() {
     }));
 
     setIsSaving(true);
-    // Save each day sequentially
+    // Save each day sequentially with active residence
     for (const d of DAYS) {
-      await saveDayPreference(selectedResidentId, residentName, d.id, newSchedule[d.id]);
+      await saveDayPreference(selectedResidentId, residentName, d.id, newSchedule[d.id], activeResidencia);
     }
     setIsSaving(false);
   };
@@ -230,26 +260,31 @@ export default function App() {
   };
 
   const handleSaveGuest = async (newGuest: GuestEntry) => {
+    const guestWithRes: GuestEntry = {
+      ...newGuest,
+      residencia: activeResidencia,
+    };
+
     // Optimistic UI
     setGuests((prev) => {
-      const idx = prev.findIndex((g) => g.id === newGuest.id);
+      const idx = prev.findIndex((g) => g.id === guestWithRes.id);
       if (idx >= 0) {
         const next = [...prev];
-        next[idx] = newGuest;
+        next[idx] = guestWithRes;
         return next;
       }
-      return [...prev, newGuest];
+      return [...prev, guestWithRes];
     });
 
     setIsSaving(true);
-    await saveGuestEntry(newGuest);
+    await saveGuestEntry(guestWithRes, activeResidencia);
     setIsSaving(false);
   };
 
   const handleDeleteGuest = async (id: string) => {
     setGuests((prev) => prev.filter((g) => g.id !== id));
     setIsSaving(true);
-    await deleteGuestEntry(id);
+    await deleteGuestEntry(id, activeResidencia);
     setIsSaving(false);
   };
 
@@ -268,25 +303,30 @@ export default function App() {
   };
 
   const handleSaveAdminNote = async (newNote: AdminNote) => {
+    const noteWithRes: AdminNote = {
+      ...newNote,
+      residencia: activeResidencia,
+    };
+
     setAdminNotes((prev) => {
-      const idx = prev.findIndex((n) => n.id === newNote.id);
+      const idx = prev.findIndex((n) => n.id === noteWithRes.id);
       if (idx >= 0) {
         const next = [...prev];
-        next[idx] = newNote;
+        next[idx] = noteWithRes;
         return next;
       }
-      return [newNote, ...prev];
+      return [noteWithRes, ...prev];
     });
 
     setIsSaving(true);
-    await saveAdminNote(newNote);
+    await saveAdminNote(noteWithRes, activeResidencia);
     setIsSaving(false);
   };
 
   const handleDeleteAdminNote = async (id: string) => {
     setAdminNotes((prev) => prev.filter((n) => n.id !== id));
     setIsSaving(true);
-    await deleteAdminNote(id);
+    await deleteAdminNote(id, activeResidencia);
     setIsSaving(false);
   };
 
@@ -296,11 +336,12 @@ export default function App() {
       status: nextStatus,
       calledInAt: nextStatus === 'transmitido' ? new Date().toISOString() : note.calledInAt,
       updatedAt: new Date().toISOString(),
+      residencia: activeResidencia,
     };
 
     setAdminNotes((prev) => prev.map((n) => (n.id === note.id ? updated : n)));
     setIsSaving(true);
-    await saveAdminNote(updated);
+    await saveAdminNote(updated, activeResidencia);
     setIsSaving(false);
   };
 
@@ -311,49 +352,41 @@ export default function App() {
   };
 
   const handleSaveAbsence = async (newAbsence: AbsenceRecord) => {
+    const absWithRes: AbsenceRecord = {
+      ...newAbsence,
+      residencia: activeResidencia,
+    };
+
     setAbsences((prev) => {
-      const idx = prev.findIndex((a) => a.id === newAbsence.id);
+      const idx = prev.findIndex((a) => a.id === absWithRes.id);
       if (idx >= 0) {
         const next = [...prev];
-        next[idx] = newAbsence;
+        next[idx] = absWithRes;
         return next;
       }
-      return [newAbsence, ...prev];
+      return [absWithRes, ...prev];
     });
 
     setIsSaving(true);
-    await saveAbsence(newAbsence);
+    await saveAbsence(absWithRes, activeResidencia);
     setIsSaving(false);
   };
 
   const handleDeleteAbsence = async (id: string) => {
     setAbsences((prev) => prev.filter((a) => a.id !== id));
     setIsSaving(true);
-    await deleteAbsence(id);
+    await deleteAbsence(id, activeResidencia);
     setIsSaving(false);
   };
 
   const handleConfigUpdated = (newConfig: SupabaseConfig) => {
     setSupabaseConfig(newConfig);
-    // Reload data with new configuration
-    loadAllPreferences().then((res) => {
-      setAllPreferences(res.data);
-      setSyncSource(res.source);
-    });
-    loadAllGuests().then((res) => {
-      setGuests(res.data);
-    });
-    loadAllAdminNotes().then((res) => {
-      setAdminNotes(res.data);
-    });
-    loadAllAbsences().then((res) => {
-      setAbsences(res.data);
-    });
+    loadResidencyData(activeResidencia);
   };
 
   const handleSaveResidents = (newResidents: Resident[]) => {
     setResidents(newResidents);
-    saveStoredResidents(newResidents);
+    saveStoredResidents(newResidents, activeResidencia);
   };
 
   const guestCountTotal = guests.reduce((sum, g) => sum + g.count, 0);
@@ -386,6 +419,8 @@ export default function App() {
       <Header
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
+        activeResidencia={activeResidencia}
+        onSelectResidencia={handleSelectResidencia}
         supabaseConfig={supabaseConfig}
         onOpenSettings={() => setIsConfigModalOpen(true)}
         syncSource={syncSource}
@@ -405,7 +440,9 @@ export default function App() {
         {isLoading ? (
           <div className="bg-white rounded-2xl p-12 text-center shadow-sm border border-slate-200 space-y-3">
             <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-            <p className="text-sm font-semibold text-slate-600">Cargando planificación de comidas de la residencia...</p>
+            <p className="text-sm font-semibold text-slate-600">
+              Cargando datos de comidas de la {RESIDENCIA_NAMES[activeResidencia]}...
+            </p>
           </div>
         ) : (
           <>
@@ -452,6 +489,7 @@ export default function App() {
                 onOpenAddGuestModal={handleOpenAddGuestModal}
                 onDeleteGuest={handleDeleteGuest}
                 syncSource={syncSource}
+                activeResidencia={activeResidencia}
               />
             )}
 
@@ -497,14 +535,14 @@ export default function App() {
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 py-4 px-6 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-3 no-print">
         <div className="flex items-center gap-2">
-          <span>🍽️ Gestión de Comidas y Agenda de Residencia (10 plazas)</span>
+          <span>🍽️ Gestión de Comidas ({RESIDENCIA_NAMES[activeResidencia]} - {residents.length} residentes)</span>
           <span>•</span>
           <button
             onClick={() => setIsResidentModalOpen(true)}
             className="text-emerald-700 hover:text-emerald-800 font-bold hover:underline flex items-center gap-1"
           >
             <Users className="w-3.5 h-3.5" />
-            <span>Lista de Iniciales</span>
+            <span>Lista de Residentes</span>
           </button>
         </div>
 
@@ -533,6 +571,7 @@ export default function App() {
         isOpen={isResidentModalOpen}
         onClose={() => setIsResidentModalOpen(false)}
         residents={residents}
+        activeResidencia={activeResidencia}
         onSaveResidents={handleSaveResidents}
       />
 

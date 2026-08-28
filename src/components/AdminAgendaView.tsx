@@ -32,7 +32,8 @@ import {
   getWeekRangeLabel, 
   formatDateDDMMYY, 
   parseISODate,
-  formatDateToISO
+  formatDateToISO,
+  isDayToday
 } from '../utils/dateUtils';
 import { WeekNavigator } from './WeekNavigator';
 
@@ -329,6 +330,7 @@ export const AdminAgendaView: React.FC<AdminAgendaViewProps> = ({
           <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
             {DAYS.map((d) => {
               const isSelected = d.id === selectedDay && dateScope === 'day';
+              const isToday = isDayToday(d.id, weekOffset);
               const dateOnly = getDayDateOnly(d.id, weekOffset);
               const pendingCount = dayNotesCount[d.id];
 
@@ -339,15 +341,22 @@ export const AdminAgendaView: React.FC<AdminAgendaViewProps> = ({
                     onSelectDay(d.id);
                     setDateScope('day');
                   }}
-                  className={`p-2.5 rounded-xl text-center transition-all border flex flex-col items-center justify-between gap-1.5 ${
+                  className={`p-2.5 rounded-xl text-center transition-all border flex flex-col items-center justify-between gap-1.5 relative ${
                     isSelected
                       ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-300'
+                      : isToday
+                      ? 'bg-blue-50/60 text-slate-800 border-blue-300 ring-1 ring-blue-400/40'
                       : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-200'
                   }`}
                 >
+                  {isToday && (
+                    <span className="absolute -top-2 left-1/2 -translate-x-1/2 px-1.5 py-0.2 bg-blue-600 text-white text-[9px] font-black rounded-full shadow-2xs tracking-wide">
+                      HOY
+                    </span>
+                  )}
                   <div className="flex items-center justify-between w-full">
                     <span className="text-[11px] font-bold">{d.short}</span>
-                    <span className={`text-[10px] font-semibold ${isSelected ? 'text-blue-100' : 'text-slate-500'}`}>
+                    <span className={`text-[10px] font-semibold ${isSelected ? 'text-blue-100' : isToday ? 'text-blue-800' : 'text-slate-500'}`}>
                       {dateOnly}
                     </span>
                   </div>

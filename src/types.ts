@@ -1,5 +1,7 @@
 export type DayOfWeek = 'lunes' | 'martes' | 'miercoles' | 'jueves' | 'viernes' | 'sabado' | 'domingo';
 
+export type Residencia = 'ucanca' | 'taiba';
+
 export interface MealSelection {
   // Desayuno
   desayuno_en_casa: boolean;
@@ -23,6 +25,7 @@ export type ResidentWeeklySchedule = Record<DayOfWeek, MealSelection>;
 export interface Resident {
   id: number;
   name: string; // Iniciales (ej. 'ILC', 'ASR'...)
+  residencia: Residencia;
   avatarColor?: string;
 }
 
@@ -32,6 +35,7 @@ export type GuestMenuType = 'estandar' | 'celiaco' | 'vegetariano' | 'sin_lactos
 
 export interface GuestEntry {
   id: string;
+  residencia?: Residencia;
   day: DayOfWeek;
   mealType: GuestMealType;
   serviceMode: GuestServiceMode;
@@ -44,6 +48,7 @@ export interface GuestEntry {
 
 export interface DayPreferenceRecord extends MealSelection {
   id?: string;
+  residencia?: Residencia;
   resident_id: number;
   resident_name: string;
   day: DayOfWeek;
@@ -98,6 +103,7 @@ export type AdminNoteStatus = 'pendiente' | 'transmitido' | 'resuelto';
 
 export interface AbsenceRecord {
   id: string;
+  residencia?: Residencia;
   residentId: number;
   residentName: string;
   startDate: string; // YYYY-MM-DD
@@ -108,6 +114,7 @@ export interface AbsenceRecord {
 
 export interface AdminNote {
   id: string;
+  residencia?: Residencia;
   title: string;              // Resumen / Título de la petición
   description?: string;        // Detalles explicativos
   category: AdminNoteCategory; // Categoría

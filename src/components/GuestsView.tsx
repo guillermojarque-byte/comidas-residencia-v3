@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Users, Plus, Trash2, Calendar, Utensils, Clock, Package, Sparkles, Filter } from 'lucide-react';
 import { DAYS, GUEST_MENU_LABELS, GUEST_SERVICE_LABELS } from '../constants';
 import { DayOfWeek, GuestEntry, GuestMealType, Resident } from '../types';
-import { getDayShortFormatted, getDayFullFormatted, getDayDateOnly, getWeekRangeLabel } from '../utils/dateUtils';
+import { getDayShortFormatted, getDayFullFormatted, getDayDateOnly, getWeekRangeLabel, isDayToday } from '../utils/dateUtils';
 import { WeekNavigator } from './WeekNavigator';
 
 interface GuestsViewProps {
@@ -108,6 +108,7 @@ export const GuestsView: React.FC<GuestsViewProps> = ({
 
           {DAYS.map((d) => {
             const isSelected = filterDay === d.id;
+            const isToday = isDayToday(d.id, weekOffset);
             const countForDay = guests.filter((g) => g.day === d.id).reduce((sum, g) => sum + g.count, 0);
             const dateOnly = getDayDateOnly(d.id, weekOffset);
 
@@ -118,15 +119,22 @@ export const GuestsView: React.FC<GuestsViewProps> = ({
                   setFilterDay(d.id);
                   onSelectDay(d.id);
                 }}
-                className={`py-2 px-1.5 rounded-xl text-center transition border font-bold text-xs flex flex-col items-center justify-center gap-0.5 ${
+                className={`py-2 px-1.5 rounded-xl text-center transition border font-bold text-xs flex flex-col items-center justify-center gap-0.5 relative ${
                   isSelected
                     ? 'bg-slate-900 text-white border-slate-900 shadow-sm ring-2 ring-indigo-500/50'
+                    : isToday
+                    ? 'bg-indigo-50/60 text-slate-800 border-indigo-300 ring-1 ring-indigo-400/40'
                     : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-200'
                 }`}
               >
+                {isToday && (
+                  <span className="absolute -top-2 left-1/2 -translate-x-1/2 px-1.5 py-0.2 bg-indigo-600 text-white text-[9px] font-black rounded-full shadow-2xs tracking-wide">
+                    HOY
+                  </span>
+                )}
                 <div className="flex items-center gap-1">
                   <span>{d.short}</span>
-                  <span className={`text-[10px] font-semibold ${isSelected ? 'text-indigo-300' : 'text-slate-500'}`}>
+                  <span className={`text-[10px] font-semibold ${isSelected ? 'text-indigo-300' : isToday ? 'text-indigo-700' : 'text-slate-500'}`}>
                     {dateOnly}
                   </span>
                 </div>
