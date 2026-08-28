@@ -84,7 +84,7 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
   const currentResident = residents.find((r) => r.id === selectedResidentId) || residents[0];
   
   // Check if current resident is absent on the selected day
-  const residentAbsenceToday = isDayInAbsence(selectedDay, weekOffset, absences, currentResident.id);
+  const residentAbsenceToday = isDayInAbsence(selectedDay, weekOffset, absences, currentResident.id, currentResident.name);
 
   const currentDayData: MealSelection = weeklySchedule[selectedDay] || {
     desayuno_en_casa: true,
@@ -245,7 +245,7 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
             <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5 pt-1">
               {residents.map((res) => {
                 const isSelected = res.id === selectedResidentId;
-                const isAbsentToday = isDayInAbsence(selectedDay, weekOffset, absences, res.id);
+                const isAbsentToday = isDayInAbsence(selectedDay, weekOffset, absences, res.id, res.name);
 
                 return (
                   <button
@@ -390,7 +390,7 @@ export const ResidentView: React.FC<ResidentViewProps> = ({
             const isToday = isDayToday(day.id, weekOffset);
             const dayPref = weeklySchedule[day.id];
             const formattedDate = getDayDateOnly(day.id, weekOffset);
-            const isAbsent = isDayInAbsence(day.id, weekOffset, absences, currentResident.id);
+            const isAbsent = isDayInAbsence(day.id, weekOffset, absences, currentResident.id, currentResident.name);
 
             return (
               <button

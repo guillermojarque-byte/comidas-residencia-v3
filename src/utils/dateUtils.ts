@@ -175,11 +175,18 @@ export function isDayToday(dayId: DayOfWeek, weekOffset: number = 0, baseDate: D
 export function isDateInAbsence(
   dateISO: string,
   absences: AbsenceRecord[],
-  residentId: number
+  residentId: number,
+  residentName?: string
 ): AbsenceRecord | undefined {
   if (!dateISO || !absences || absences.length === 0) return undefined;
   return absences.find((abs) => {
-    if (abs.residentId !== residentId) return false;
+    const matchesId = abs.residentId === residentId;
+    const matchesName = Boolean(
+      residentName && 
+      abs.residentName && 
+      abs.residentName.trim().toLowerCase() === residentName.trim().toLowerCase()
+    );
+    if (!matchesId && !matchesName) return false;
     return dateISO >= abs.startDate && dateISO <= abs.endDate;
   });
 }
@@ -191,10 +198,11 @@ export function isDayInAbsence(
   dayId: DayOfWeek,
   weekOffset: number,
   absences: AbsenceRecord[],
-  residentId: number
+  residentId: number,
+  residentName?: string
 ): AbsenceRecord | undefined {
   const dayISO = getDayISOString(dayId, weekOffset);
-  return isDateInAbsence(dayISO, absences, residentId);
+  return isDateInAbsence(dayISO, absences, residentId, residentName);
 }
 
 /**

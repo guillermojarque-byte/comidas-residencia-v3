@@ -24,7 +24,8 @@ import {
   deleteAdminNote,
   loadAllAbsences,
   saveAbsence,
-  deleteAbsence
+  deleteAbsence,
+  getActiveSupabaseClient
 } from './services/storageService';
 import { 
   AbsenceRecord,
@@ -99,11 +100,16 @@ export default function App() {
   });
 
   // Load data for active residence
-  const loadResidencyData = async (residencia: Residencia) => {
-    setIsLoading(true);
-    const curResidents = getStoredResidents(residencia);
-    setResidents(curResidents);
-    setSelectedResidentId(curResidents[0]?.id || 1);
+  const loadResidencyData = async (residencia: Residencia, showLoading: boolean = true) => {
+    if (showLoading) {
+      setIsLoading(true);
+      const curResidents = getStoredResidents(residencia);
+      setResidents(curResidents);
+      setSelectedResidentId((prev) => {
+        const found = curResidents.some((r) => r.id === prev);
+        return found ? prev : (curResidents[0]?.id || 1);
+      });
+    }
 
     const [resPref, resGuests, resNotes, resAbsences] = await Promise.all([
       loadAllPreferences(residencia),
@@ -117,7 +123,9 @@ export default function App() {
     setGuests(resGuests.data);
     setAdminNotes(resNotes.data);
     setAbsences(resAbsences.data);
-    setIsLoading(false);
+    if (showLoading) {
+      setIsLoading(false);
+    }
   };
 
   // Switch residence handler
@@ -127,15 +135,54 @@ export default function App() {
     try {
       localStorage.setItem('comidas_active_residencia', newRes);
     } catch (e) {}
-    loadResidencyData(newRes);
+    loadResidencyData(newRes, true);
   };
 
-  // Initialize and load
+  // Initialize and purge any legacy mock notes from browser storage
   useEffect(() => {
+    try {
+      const localNotesStr = localStorage.getItem('residencia_admin_agenda_v3');
+      if (localNotesStr) {
+        const parsed = JSON.parse(localNotesStr);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter((n) => !String(n.id).startsWith('note_init_'));
+          localStorage.setItem('residencia_admin_agenda_v3', JSON.stringify(cleaned));
+        }
+      }
+    } catch {}
+
     const config = initializeSupabaseConfig();
     setSupabaseConfig(config);
-    loadResidencyData(activeResidencia);
+    loadResidencyData(activeResidencia, true);
   }, []);
+
+  // Real-time synchronization with Supabase and periodic background check
+  useEffect(() => {
+    const client = getActiveSupabaseClient();
+    if (!client || !supabaseConfig.isConfigured) return;
+
+    // 1. Real-time PostgreSQL subscription channel
+    const channel = client
+      .channel(`realtime-residencia-${activeResidencia}-${Date.now()}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public' },
+        () => {
+          loadResidencyData(activeResidencia, false);
+        }
+      )
+      .subscribe();
+
+    // 2. Periodic background refresh every 15 seconds for resilient mobile sync
+    const interval = setInterval(() => {
+      loadResidencyData(activeResidencia, false);
+    }, 15000);
+
+    return () => {
+      client.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, [activeResidencia, supabaseConfig.isConfigured]);
 
   // Week navigation controls
   const handlePreviousWeek = () => setWeekOffset((prev) => prev - 1);

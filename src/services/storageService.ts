@@ -1,6 +1,19 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { DAYS, RESIDENTS_UCANCA, RESIDENTS_TAIBA, createDefaultWeekSchedule } from '../constants';
-import { AbsenceRecord, AdminNote, DayOfWeek, GuestEntry, MealSelection, Residencia, Resident, ResidentWeeklySchedule, SupabaseConfig } from '../types';
+import { 
+  AbsenceRecord, 
+  AdminNote, 
+  AdminNoteCategory, 
+  AdminNotePriority, 
+  AdminNoteStatus, 
+  DayOfWeek, 
+  GuestEntry, 
+  MealSelection, 
+  Residencia, 
+  Resident, 
+  ResidentWeeklySchedule, 
+  SupabaseConfig 
+} from '../types';
 import { formatDateToISO } from '../utils/dateUtils';
 
 const STORAGE_KEY_CONFIG = 'residencia_supabase_config_v2';
@@ -460,44 +473,6 @@ export async function testSupabaseConnection(
 // ----------------------------------------------------
 // AGENDA ADMINISTRACIÓN (PETICIONES Y AVISOS POR FECHA CONCRETA)
 // ----------------------------------------------------
-const DEFAULT_INITIAL_ADMIN_NOTES: AdminNote[] = [
-  {
-    id: 'note_init_1',
-    residencia: 'ucanca',
-    title: 'Ajuste de horario de cena del jueves',
-    description: 'Varios residentes tienen examen y partido universitario. Solicitar retrasar 30 minutos el segundo turno de cena o dejar los platos preparados.',
-    category: 'horarios',
-    author: 'ILC',
-    priority: 'urgente',
-    status: 'pendiente',
-    targetDate: formatDateToISO(new Date()),
-    createdAt: new Date(Date.now() - 3600000 * 4).toISOString(),
-  },
-  {
-    id: 'note_init_2',
-    residencia: 'ucanca',
-    title: 'Revisión del termo de agua caliente en planta 2',
-    description: 'Por las mañanas baja la presión y sale templada a primera hora. Pedir que avisen al servicio técnico de fontanería.',
-    category: 'mantenimiento',
-    author: 'JAM',
-    priority: 'normal',
-    status: 'pendiente',
-    targetDate: formatDateToISO(new Date()),
-    createdAt: new Date(Date.now() - 3600000 * 12).toISOString(),
-  },
-  {
-    id: 'note_init_3',
-    residencia: 'taiba',
-    title: 'Solicitud de tuppers adicionales para salida deportiva',
-    description: 'El sábado 4 residentes participan en competición deportiva interuniversitaria.',
-    category: 'cocina',
-    author: 'MGS',
-    priority: 'normal',
-    status: 'pendiente',
-    targetDate: formatDateToISO(new Date()),
-    createdAt: new Date(Date.now() - 3600000 * 6).toISOString(),
-  },
-];
 
 export function getLocalAdminNotes(residencia?: Residencia): AdminNote[] {
   try {
@@ -512,10 +487,7 @@ export function getLocalAdminNotes(residencia?: Residencia): AdminNote[] {
   } catch {
     // fallback
   }
-  // Store default sample notes
-  localStorage.setItem(STORAGE_KEY_ADMIN_AGENDA, JSON.stringify(DEFAULT_INITIAL_ADMIN_NOTES));
-  if (!residencia) return DEFAULT_INITIAL_ADMIN_NOTES;
-  return DEFAULT_INITIAL_ADMIN_NOTES.filter((n) => n.residencia === residencia);
+  return [];
 }
 
 export function saveLocalAdminNotes(notes: AdminNote[]) {
@@ -528,42 +500,85 @@ export async function loadAllAdminNotes(residencia?: Residencia): Promise<{
 }> {
   if (supabaseInstance && currentConfig.isConfigured) {
     try {
-      let query = supabaseInstance
-        .from('admin_agenda_notes')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const targetRes = residencia || 'ucanca';
 
-      if (residencia) {
-        query = query.eq('residencia', residencia);
+      // 1. Try querying 'daily_notes' table first
+      let notesData: Record<string, unknown>[] | null = null;
+      let queryError: unknown = null;
+
+      try {
+        let query = supabaseInstance
+          .from('daily_notes')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (residencia) {
+          query = query.or(`residencia_id.eq.${targetRes},residencia.eq.${targetRes}`);
+        }
+        const res = await query;
+        if (!res.error && res.data) {
+          notesData = res.data;
+        } else {
+          queryError = res.error;
+        }
+      } catch (e) {
+        queryError = e;
       }
 
-      const { data, error } = await query;
+      // 2. Fallback to 'admin_agenda_notes' if daily_notes failed or is empty
+      if (!notesData || queryError) {
+        try {
+          let fallbackQuery = supabaseInstance
+            .from('admin_agenda_notes')
+            .select('*')
+            .order('created_at', { ascending: false });
 
-      if (!error && data && data.length >= 0) {
-        const mapped: AdminNote[] = data.map((row: Record<string, unknown>) => ({
-          id: String(row.id),
-          residencia: (row.residencia as Residencia) || 'ucanca',
-          title: String(row.title || ''),
-          description: String(row.description || ''),
-          category: (row.category as AdminNote['category']) || 'general',
-          author: String(row.author || 'Residente'),
-          priority: (row.priority as AdminNote['priority']) || 'normal',
-          status: (row.status as AdminNote['status']) || 'pendiente',
-          targetDate: row.target_date ? String(row.target_date) : formatDateToISO(new Date()),
-          createdAt: String(row.created_at || new Date().toISOString()),
-          updatedAt: row.updated_at ? String(row.updated_at) : undefined,
-          calledInAt: row.called_in_at ? String(row.called_in_at) : undefined,
-          responseNotes: row.response_notes ? String(row.response_notes) : undefined,
-        }));
-        
+          if (residencia) {
+            fallbackQuery = fallbackQuery.or(`residencia.eq.${targetRes},residencia_id.eq.${targetRes}`);
+          }
+          const fbRes = await fallbackQuery;
+          if (!fbRes.error && fbRes.data) {
+            notesData = fbRes.data;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (notesData) {
+        const mapped: AdminNote[] = notesData.map((row: Record<string, unknown>) => {
+          const rowText = String(row.note_text || '');
+          const rowTitle = row.title ? String(row.title) : rowText ? rowText.split('\n')[0] : 'Nota';
+          const rowDesc = row.description ? String(row.description) : rowText && rowText !== rowTitle ? rowText : '';
+
+          return {
+            id: String(row.id),
+            residencia: ((row.residencia_id || row.residencia || targetRes) as Residencia),
+            title: rowTitle,
+            description: rowDesc,
+            category: (row.category as AdminNoteCategory) || 'general',
+            author: String(row.author || 'Residente'),
+            priority: (row.priority as AdminNotePriority) || 'normal',
+            status: (row.status as AdminNoteStatus) || 'pendiente',
+            targetDate: String(row.date || row.target_date || formatDateToISO(new Date())),
+            createdAt: String(row.created_at || new Date().toISOString()),
+            updatedAt: row.updated_at ? String(row.updated_at) : undefined,
+            calledInAt: row.called_in_at ? String(row.called_in_at) : undefined,
+            responseNotes: row.response_notes ? String(row.response_notes) : undefined,
+          };
+        });
+
+        // Filter strictly by active residence
+        const filteredMapped = mapped.filter((n) => n.residencia === targetRes);
+
         const currentAll = getLocalAdminNotes();
-        const otherNotes = residencia ? currentAll.filter((n) => n.residencia !== residencia) : [];
-        saveLocalAdminNotes([...otherNotes, ...mapped]);
+        const otherNotes = currentAll.filter((n) => n.residencia !== targetRes);
+        saveLocalAdminNotes([...otherNotes, ...filteredMapped]);
 
-        return { data: mapped, source: 'supabase' };
+        return { data: filteredMapped, source: 'supabase' };
       }
-    } catch {
-      // ignore, fallback to local
+    } catch (err) {
+      console.warn('Error loading admin daily notes from Supabase:', err);
     }
   }
   return { data: getLocalAdminNotes(residencia), source: 'local' };
@@ -583,24 +598,38 @@ export async function saveAdminNote(note: AdminNote, residencia?: Residencia): P
   saveLocalAdminNotes(current);
 
   if (supabaseInstance && currentConfig.isConfigured) {
+    const formattedNoteText = entry.description ? `${entry.title}\n${entry.description}` : entry.title;
+    const payload = {
+      id: entry.id,
+      residencia_id: entry.residencia,
+      residencia: entry.residencia,
+      date: entry.targetDate || formatDateToISO(new Date()),
+      target_date: entry.targetDate || formatDateToISO(new Date()),
+      note_text: formattedNoteText,
+      title: entry.title,
+      description: entry.description || '',
+      category: entry.category,
+      author: entry.author,
+      priority: entry.priority,
+      status: entry.status,
+      created_at: entry.createdAt,
+      updated_at: new Date().toISOString(),
+      called_in_at: entry.calledInAt || null,
+      response_notes: entry.responseNotes || null,
+    };
+
     try {
-      const payload = {
-        id: entry.id,
-        residencia: entry.residencia,
-        title: entry.title,
-        description: entry.description || '',
-        category: entry.category,
-        author: entry.author,
-        priority: entry.priority,
-        status: entry.status,
-        target_date: entry.targetDate || formatDateToISO(new Date()),
-        created_at: entry.createdAt,
-        updated_at: new Date().toISOString(),
-        called_in_at: entry.calledInAt || null,
-        response_notes: entry.responseNotes || null,
-      };
-      await supabaseInstance.from('admin_agenda_notes').upsert(payload, { onConflict: 'id' });
-      return { success: true, source: 'supabase' };
+      // 1. Try 'daily_notes'
+      const { error: dailyErr } = await supabaseInstance.from('daily_notes').upsert(payload, { onConflict: 'id' });
+      if (!dailyErr) {
+        return { success: true, source: 'supabase' };
+      }
+
+      // 2. Fallback to 'admin_agenda_notes'
+      const { error: adminErr } = await supabaseInstance.from('admin_agenda_notes').upsert(payload, { onConflict: 'id' });
+      if (!adminErr) {
+        return { success: true, source: 'supabase' };
+      }
     } catch {
       return { success: true, source: 'local' };
     }
@@ -615,11 +644,10 @@ export async function deleteAdminNote(noteId: string, residencia?: Residencia): 
 
   if (supabaseInstance && currentConfig.isConfigured) {
     try {
-      let query = supabaseInstance.from('admin_agenda_notes').delete().eq('id', noteId);
-      if (residencia) {
-        query = query.eq('residencia', residencia);
-      }
-      await query;
+      await Promise.allSettled([
+        supabaseInstance.from('daily_notes').delete().eq('id', noteId),
+        supabaseInstance.from('admin_agenda_notes').delete().eq('id', noteId),
+      ]);
       return { success: true, source: 'supabase' };
     } catch {
       return { success: true, source: 'local' };
@@ -658,37 +686,100 @@ export async function loadAllAbsences(residencia?: Residencia): Promise<{
 }> {
   if (supabaseInstance && currentConfig.isConfigured) {
     try {
-      let query = supabaseInstance
-        .from('resident_absences')
-        .select('*')
-        .order('start_date', { ascending: true });
+      const targetRes = residencia || 'ucanca';
+      const allResidents = targetRes === 'ucanca' ? RESIDENTS_UCANCA : RESIDENTS_TAIBA;
 
-      if (residencia) {
-        query = query.eq('residencia', residencia);
+      // 1. Try querying 'absences' table first
+      let absencesData: Record<string, unknown>[] | null = null;
+      let queryError: unknown = null;
+
+      try {
+        let query = supabaseInstance
+          .from('absences')
+          .select('*')
+          .order('start_date', { ascending: true });
+
+        if (residencia) {
+          query = query.or(`residencia_id.eq.${targetRes},residencia.eq.${targetRes}`);
+        }
+        const res = await query;
+        if (!res.error && res.data) {
+          absencesData = res.data;
+        } else {
+          queryError = res.error;
+        }
+      } catch (e) {
+        queryError = e;
       }
 
-      const { data, error } = await query;
+      // 2. Fallback to 'resident_absences' table
+      if (!absencesData || queryError) {
+        try {
+          let fallbackQuery = supabaseInstance
+            .from('resident_absences')
+            .select('*')
+            .order('start_date', { ascending: true });
 
-      if (!error && data) {
-        const mapped: AbsenceRecord[] = data.map((row: Record<string, unknown>) => ({
-          id: String(row.id),
-          residencia: (row.residencia as Residencia) || 'ucanca',
-          residentId: Number(row.resident_id),
-          residentName: String(row.resident_name || ''),
-          startDate: String(row.start_date || ''),
-          endDate: String(row.end_date || ''),
-          reason: String(row.reason || ''),
-          createdAt: String(row.created_at || ''),
-        }));
+          if (residencia) {
+            fallbackQuery = fallbackQuery.or(`residencia.eq.${targetRes},residencia_id.eq.${targetRes}`);
+          }
+          const fbRes = await fallbackQuery;
+          if (!fbRes.error && fbRes.data) {
+            absencesData = fbRes.data;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (absencesData) {
+        const mapped: AbsenceRecord[] = absencesData.map((row: Record<string, unknown>) => {
+          const rowResIdRaw = row.resident_id;
+          let resIdNum = 1;
+          let resName = String(row.resident_name || '');
+
+          if (typeof rowResIdRaw === 'number') {
+            resIdNum = rowResIdRaw;
+            const matched = allResidents.find((r) => r.id === resIdNum);
+            if (matched && !resName) resName = matched.name;
+          } else if (typeof rowResIdRaw === 'string') {
+            // Check if matches resident initials
+            const matched = allResidents.find((r) => r.name.toLowerCase() === rowResIdRaw.toLowerCase());
+            if (matched) {
+              resIdNum = matched.id;
+              resName = matched.name;
+            } else {
+              const parsedNum = parseInt(rowResIdRaw, 10);
+              if (!isNaN(parsedNum)) {
+                resIdNum = parsedNum;
+              }
+              if (!resName) resName = rowResIdRaw;
+            }
+          }
+
+          return {
+            id: String(row.id),
+            residencia: ((row.residencia_id || row.residencia || targetRes) as Residencia),
+            residentId: resIdNum,
+            residentName: resName || `Residente ${resIdNum}`,
+            startDate: String(row.start_date || ''),
+            endDate: String(row.end_date || ''),
+            reason: String(row.reason || ''),
+            createdAt: String(row.created_at || new Date().toISOString()),
+          };
+        });
+
+        // Filter strictly by active residence
+        const filteredMapped = mapped.filter((a) => a.residencia === targetRes);
 
         const currentAll = getLocalAbsences();
-        const otherAbsences = residencia ? currentAll.filter((a) => a.residencia !== residencia) : [];
-        saveLocalAbsences([...otherAbsences, ...mapped]);
+        const otherAbsences = currentAll.filter((a) => a.residencia !== targetRes);
+        saveLocalAbsences([...otherAbsences, ...filteredMapped]);
 
-        return { data: mapped, source: 'supabase' };
+        return { data: filteredMapped, source: 'supabase' };
       }
-    } catch {
-      // fallback to local
+    } catch (err) {
+      console.warn('Error loading absences from Supabase:', err);
     }
   }
   return { data: getLocalAbsences(residencia), source: 'local' };
@@ -708,19 +799,35 @@ export async function saveAbsence(absence: AbsenceRecord, residencia?: Residenci
   saveLocalAbsences(current);
 
   if (supabaseInstance && currentConfig.isConfigured) {
+    const payload = {
+      id: entry.id,
+      residencia_id: entry.residencia,
+      residencia: entry.residencia,
+      resident_id: entry.residentName || String(entry.residentId),
+      resident_name: entry.residentName,
+      start_date: entry.startDate,
+      end_date: entry.endDate,
+      reason: entry.reason || '',
+      created_at: entry.createdAt || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
     try {
-      const payload = {
-        id: entry.id,
-        residencia: entry.residencia,
+      // 1. Try 'absences'
+      const { error: absErr } = await supabaseInstance.from('absences').upsert(payload, { onConflict: 'id' });
+      if (!absErr) {
+        return { success: true, source: 'supabase' };
+      }
+
+      // 2. Fallback to 'resident_absences'
+      const fallbackPayload = {
+        ...payload,
         resident_id: entry.residentId,
-        resident_name: entry.residentName,
-        start_date: entry.startDate,
-        end_date: entry.endDate,
-        reason: entry.reason || '',
-        updated_at: new Date().toISOString(),
       };
-      await supabaseInstance.from('resident_absences').upsert(payload, { onConflict: 'id' });
-      return { success: true, source: 'supabase' };
+      const { error: resAbsErr } = await supabaseInstance.from('resident_absences').upsert(fallbackPayload, { onConflict: 'id' });
+      if (!resAbsErr) {
+        return { success: true, source: 'supabase' };
+      }
     } catch {
       return { success: true, source: 'local' };
     }
@@ -735,11 +842,10 @@ export async function deleteAbsence(absenceId: string, residencia?: Residencia):
 
   if (supabaseInstance && currentConfig.isConfigured) {
     try {
-      let query = supabaseInstance.from('resident_absences').delete().eq('id', absenceId);
-      if (residencia) {
-        query = query.eq('residencia', residencia);
-      }
-      await query;
+      await Promise.allSettled([
+        supabaseInstance.from('absences').delete().eq('id', absenceId),
+        supabaseInstance.from('resident_absences').delete().eq('id', absenceId),
+      ]);
       return { success: true, source: 'supabase' };
     } catch {
       return { success: true, source: 'local' };
@@ -747,6 +853,10 @@ export async function deleteAbsence(absenceId: string, residencia?: Residencia):
   }
 
   return { success: true, source: 'local' };
+}
+
+export function getActiveSupabaseClient(): SupabaseClient | null {
+  return supabaseInstance;
 }
 
 

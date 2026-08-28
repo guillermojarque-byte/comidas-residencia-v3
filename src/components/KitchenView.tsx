@@ -91,7 +91,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
 
     residents.forEach((r) => {
       // Check if resident is absent on this day
-      const absence = isDayInAbsence(day, offset, absences, r.id);
+      const absence = isDayInAbsence(day, offset, absences, r.id, r.name);
       if (absence) {
         resAbsentCount++;
         return; // No meals counted for absent resident
@@ -573,8 +573,8 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {residents.map((r) => {
-                    const absenceToday = isDayInAbsence(selectedDay, weekOffset, absences, r.id);
-                    const absenceTomorrow = isDayInAbsence(nextDay, nextDayWeekOffset, absences, r.id);
+                    const absenceToday = isDayInAbsence(selectedDay, weekOffset, absences, r.id, r.name);
+                    const absenceTomorrow = isDayInAbsence(nextDay, nextDayWeekOffset, absences, r.id, r.name);
                     
                     const prefToday = allPreferences[r.id]?.[selectedDay];
                     const prefTomorrow = allPreferences[r.id]?.[nextDay];
