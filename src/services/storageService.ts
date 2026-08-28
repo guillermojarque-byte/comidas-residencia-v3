@@ -147,7 +147,13 @@ export function getStoredResidents(residencia: Residencia = 'ucanca'): Resident[
     if (data) {
       const parsed: Resident[] = JSON.parse(data);
       if (Array.isArray(parsed) && parsed.length === defaults.length) {
-        return parsed.map((r) => ({ ...r, residencia }));
+        const updated = parsed.map((r) => {
+          if (r.id === 111 && (r.name === 'JDD' || !r.name)) {
+            return { ...r, name: 'JAD', residencia };
+          }
+          return { ...r, residencia };
+        });
+        return updated;
       }
     }
   } catch {

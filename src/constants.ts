@@ -58,7 +58,7 @@ export const RESIDENTS_TAIBA: Resident[] = [
   { id: 108, name: 'CMA', residencia: 'taiba', avatarColor: 'bg-cyan-600' },
   { id: 109, name: 'GBM', residencia: 'taiba', avatarColor: 'bg-fuchsia-600' },
   { id: 110, name: 'JHG', residencia: 'taiba', avatarColor: 'bg-blue-600' },
-  { id: 111, name: 'JDD', residencia: 'taiba', avatarColor: 'bg-purple-600' },
+  { id: 111, name: 'JAD', residencia: 'taiba', avatarColor: 'bg-purple-600' },
 ];
 
 export const INITIAL_RESIDENTS: Resident[] = RESIDENTS_UCANCA;
